@@ -26,13 +26,18 @@ import java.util.Set;
 
 /**
  * Car Sound's engine: Android's equalizer and bass boost on phone projection audio
- * (Android Auto, CarPlay), volume, bass and treble that follow the car's speed, and the Bose Dynamic Speed
- * Compensation switch. HMG-API runs it as root through svc/engine.sh (app_process).
+ * (Android Auto, CarPlay), volume, bass and treble that follow the car's speed, and, on a car
+ * with the Bose amplifier, its Dynamic Speed Compensation switch. HMG-API runs it as root through
+ * svc/engine.sh (app_process).
  *
  * Settings: HMG-API's file for the mod (/data/hmgapi/settings/car-sound.json, the owner's
  * values only), read again whenever it changes. Status for the app: Config.STATUS. Stopping
  * (svc/engine.sh's trap writes "stop" next to it): effects released, so the audio is as it
  * was, and Bose DSC put back.
+ *
+ * Other cars: the equalizer follows the bands the car's equalizer has (Config.eqAt), and Bose DSC
+ * (sound setting 47) is only touched when the car says it has it (getSoundAvailability(47), as
+ * the car's own Sound settings ask), since on another amplifier that setting may not exist.
  */
 public final class Engine {
     static final String SETTINGS = "/data/hmgapi/settings/" + Config.MOD + ".json";
@@ -42,6 +47,8 @@ public final class Engine {
     /** the owner's Bose DSC from before Car Sound changed it (survives restarts) */
     static final File DSC_FILE = new File(DIR, "dsc-original");
     static final int DSC = 47;   // BOSE_DSCMODE: 1 on, 0 off (what the car's Sound menu sends)
+    /** recheck the car's Bose DSC this often (ms): the micom can answer late after a start */
+    static final long BOSE_RECHECK = 60000, BOSE_RETRY = 5000;
     static final SimpleDateFormat T = new SimpleDateFormat("MM-dd HH:mm:ss");
 
     static final class Fx {
@@ -49,12 +56,20 @@ public final class Engine {
         final Equalizer eq;
         final BassBoost bb;
         LoudnessEnhancer le;   // the speed tuning's volume: louder with a limiter, so it doesn't clip
+        final double[] hz;     // the centre of each of the car's equalizer bands
+        final short lo, hi;    // and the levels they take (mB)
         long seen;
 
         Fx(int session) {
             this.session = session;
             eq = new Equalizer(Integer.MAX_VALUE, session);
             bb = new BassBoost(Integer.MAX_VALUE, session);
+            short n = eq.getNumberOfBands();
+            hz = new double[n];
+            for (short i = 0; i < n; i++) hz[i] = eq.getCenterFreq(i) / 1000.0;   // mHz
+            short[] range = eq.getBandLevelRange();
+            lo = range[0];
+            hi = range[1];
             try {
                 le = new LoudnessEnhancer(session);
             } catch (Throwable t) {
@@ -78,7 +93,12 @@ public final class Engine {
     static final double[] now = new double[3];
     static int dscOriginal = -1;
     static String dscApplied = "";
-    static short lo = -1500, hi = 1500;
+    /** the car has Bose DSC (getSoundAvailability); null until the car has answered */
+    static Boolean bose;
+    static long boseAt;
+    static String boseWhy;
+    /** why phone audio can't be tuned (the last session's effects failed), or null */
+    static String fxError;
 
     public static void main(String[] a) throws Exception {
         DIR.mkdirs();
@@ -95,6 +115,7 @@ public final class Engine {
                     speed = speed();
                     if (tick % 2 == 0) sessions();
                     apply();
+                    bose();
                     dsc();
                     status(null);
                 } catch (Throwable t) {
@@ -238,7 +259,7 @@ public final class Engine {
             if (!n.matches("[0-9]+")) continue;
             try {
                 String cmd = read(new File(d, "cmdline")).replace('\0', ' ').trim();
-                for (String p : PACKAGES) if (p.equals(cmd)) out.add(Integer.parseInt(n));
+                for (String p : PACKAGES) if (cmd.equals(p) || cmd.startsWith(p + ":")) out.add(Integer.parseInt(n));   // or one of its processes
             } catch (Exception e) {
                 // gone
             }
@@ -273,13 +294,14 @@ public final class Engine {
             if (f == null) {
                 try {
                     f = new Fx(s);
-                    short[] range = f.eq.getBandLevelRange();
-                    lo = range[0];
-                    hi = range[1];
                     fx.put(s, f);
-                    log("audio session " + s + ": equalizer and bass boost on it");
+                    fxError = null;
+                    StringBuilder b = new StringBuilder();
+                    for (double c : f.hz) b.append(b.length() == 0 ? "" : ", ").append(Math.round(c)).append(" Hz");
+                    log("audio session " + s + ": equalizer (" + b + "; " + f.lo / 100 + " to " + f.hi / 100 + " dB) and bass boost on it");
                 } catch (Throwable t) {
-                    log("audio session " + s + ": no effects (" + t + ")");
+                    if (!String.valueOf(t).equals(fxError)) log("audio session " + s + ": no effects (" + t + ")");
+                    fxError = String.valueOf(t);
                     continue;
                 }
             }
@@ -309,10 +331,10 @@ public final class Engine {
                     if (f.le != null && f.le.getEnabled()) f.le.setEnabled(false);
                     continue;
                 }
-                short n = f.eq.getNumberOfBands();
-                for (short i = 0; i < n && i < 5; i++) {
-                    double mB = cfg.bands[i] + (i == 0 ? now[Config.BASS] : i >= 3 ? now[Config.TREBLE] : 0);
-                    short want = (short) Math.max(lo, Math.min(hi, Math.round(mB)));
+                for (short i = 0; i < f.hz.length; i++) {
+                    double c = f.hz[i];
+                    double mB = Config.eqAt(cfg.bands, c) + (c < Config.BASS_HZ ? now[Config.BASS] : 0) + (c >= Config.TREBLE_HZ ? now[Config.TREBLE] : 0);
+                    short want = (short) Math.max(f.lo, Math.min(f.hi, Math.round(mB)));
                     if (f.eq.getBandLevel(i) != want) f.eq.setBandLevel(i, want);
                 }
                 if (f.le != null) {
@@ -329,8 +351,41 @@ public final class Engine {
         }
     }
 
+    /**
+     * Does the car have Bose DSC? Asked as the car's own Sound settings ask: getSoundAvailability(47)
+     * on its audio service, 1 for a car with the Bose amplifier's DSC. Every 5 s until the car answers,
+     * then every minute (a micom that answered "no" while starting up gets another chance).
+     */
+    static void bose() {
+        long t = System.currentTimeMillis();
+        if (t - boseAt < (bose == null ? BOSE_RETRY : BOSE_RECHECK)) return;
+        boseAt = t;
+        try {
+            Object au = audio();
+            boolean has = ((Number) call(au, "getSoundAvailability", DSC)).intValue() > 0;
+            if (bose == null || bose != has) {
+                String amp = "";
+                try {
+                    amp = ", amplifier type " + call(au, "getAmpType");
+                } catch (Throwable e) {
+                    // not on this firmware: only for the log
+                }
+                log(has ? "the car has Bose DSC" + amp + ": the Bose page is on"
+                        : "the car has no Bose DSC" + amp + ": Car Sound leaves its sound setting 47 alone");
+            }
+            bose = has;
+            boseWhy = null;
+        } catch (Throwable e) {
+            audio = null;
+            String why = String.valueOf(e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e);
+            if (!why.equals(boseWhy)) log("can't ask the car about Bose DSC (" + why + ")" + (bose == null ? ": the Bose page waits" : ""));
+            boseWhy = why;
+        }
+    }
+
     static void dsc() {
-        String want = cfg.on ? cfg.dsc : "leave";
+        if (bose == null) return;   // not known yet: change nothing
+        String want = cfg.on && bose ? cfg.dsc : "leave";   // "leave" still puts back a change made before (DSC_FILE)
         if (want.equals(dscApplied)) return;
         try {
             if ("leave".equals(want)) {
@@ -398,6 +453,8 @@ public final class Engine {
             s.put("speed_bass_mB", Math.round(now[Config.BASS]));
             s.put("speed_treble_mB", Math.round(now[Config.TREBLE]));
             s.put("dsc", dscApplied);
+            if (bose != null) s.put("bose", bose.booleanValue());
+            if (fxError != null && fx.isEmpty()) s.put("fx_error", fxError);
             File tmp = new File(DIR, "status.json.tmp");
             FileOutputStream o = new FileOutputStream(tmp);
             o.write(s.toString().getBytes("UTF-8"));

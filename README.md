@@ -8,8 +8,9 @@ and Genesis Gen5W head units, tuned on a 2024 Ioniq 5 Limited with the Bose syst
   Clear, Low volume, Voices, Flat.
 - **Speed tuning:** volume, bass and treble that rise with the car's speed, each on its own
   curve: drag the points at 20, 35, 50, 65 and 80 mph. Changes ease in at 1 dB a second.
-- **Bose DSC:** the car's Dynamic Speed Compensation left as set, off while Car Sound runs (so
-  the two don't stack), or on. Bose cars only.
+- **Bose DSC** (cars with the Bose system): the car's Dynamic Speed Compensation left as set,
+  off while Car Sound runs (so the two don't stack), or on. On other cars the page isn't shown
+  and the setting is never touched.
 
 Radio, Bluetooth and the car's own sounds are left alone. Turned off or removed, the sound is
 as it was.
@@ -38,9 +39,21 @@ LoudnessEnhancer effects to them. Every second it reads the speed from HMG-API (
 vehicle speed`) and moves the speed curves toward it. The app (`CarSound.apk`, Android 4.4)
 saves its settings through HMG-API's settings store; the engine picks them up when they change.
 
+## Other cars
+
 The equalizer and speed tuning use standard Android audio effects and need no hook points, so
-they should work on any Gen5W head unit that plays phone audio through Android's mixer. The Bose
-page only does something on cars with the Bose amplifier.
+they should work on any Gen5W head unit that plays phone audio through Android's mixer:
+
+- The five equalizer settings are spread over whatever bands the head unit's equalizer has, by
+  frequency, within the levels it takes (the engine's log lists them).
+- The Bose page shows only when the car says it has Bose DSC: the engine asks its audio service
+  `getSoundAvailability(47)`, the same check the car's own Sound settings make.
+- Speed tuning needs HMG-API to read the car's speed. Where it can't, the status says so and the
+  rest still works.
+- If Android's audio effects can't attach on a head unit, the status says so, with the error.
+
+Only the 2024 Ioniq 5 Limited (Bose) has been tried. If it doesn't work on your car, open an
+issue with `hmgapid service-log car-sound engine`.
 
 ## Build
 

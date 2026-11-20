@@ -27,11 +27,13 @@ import java.util.Arrays;
 
 /**
  * Car Sound's screen (1920x720): a left rail with the master switch, what the engine is doing
- * and the pages; on the right the page: Equalizer, Speed or Bose. Every change is saved to
- * HMG-API at once (setting-set) and the engine applies it within a second.
+ * and the pages; on the right the page: Equalizer, Speed or, on a car with the Bose amplifier
+ * (the engine asks the car: status "bose"), Bose. Every change is saved to HMG-API at once
+ * (setting-set) and the engine applies it within a second.
  */
 public class MainActivity extends Activity {
     static final String[] PAGES = { "Equalizer", "Speed", "Bose" };
+    static final int BOSE = 2;   // the page only a car with Bose DSC has
     static final String[] PAGE_NOTES = {
         "Android Auto and CarPlay audio. Drag a point; the radio and Bluetooth audio aren't changed.",
         "Louder, more bass and more treble as you go faster, where road noise covers them.",
@@ -49,6 +51,7 @@ public class MainActivity extends Activity {
     float speed = -1;
     boolean simulated;   // the engine's speed is a parked listening test (sim-mph)
     boolean loaded;
+    boolean bose;   // the engine found Bose DSC on this car
 
     @Override
     protected void onCreate(Bundle b) {
@@ -84,7 +87,7 @@ public class MainActivity extends Activity {
         r.setBackgroundColor(Ui.RAIL);
         r.setPadding(Ui.px(20), Ui.px(16), Ui.px(20), Ui.px(10));
         r.addView(Ui.text(this, "Car Sound", 24, Ui.TEXT, true));
-        r.addView(Ui.text(this, "Phone audio, tuned for the Bose system", 13, Ui.TEXT_2, false));
+        r.addView(Ui.text(this, "Better phone audio for your car", 13, Ui.TEXT_2, false));
 
         LinearLayout sw = new LinearLayout(this);
         sw.setOrientation(LinearLayout.HORIZONTAL);
@@ -138,6 +141,7 @@ public class MainActivity extends Activity {
     void nav() {
         navHolder.removeAllViews();
         for (int i = 0; i < PAGES.length; i++) {
+            if (i == BOSE && !bose) continue;
             final int k = i;
             TextView t = Ui.text(this, PAGES[i], 17, i == page ? Ui.ACCENT : Ui.TEXT, true);
             t.setPadding(Ui.px(16), Ui.px(8), Ui.px(16), Ui.px(8));
@@ -263,7 +267,7 @@ public class MainActivity extends Activity {
         });
         boostSlider = (Ui.Slider) sl[0];
         boostValue = (TextView) sl[1];
-        card.addView(Ui.text(this, "On top of the equalizer. Above about 60% the Bose amplifier may limit or distort at high volume.", 12, Ui.TEXT_3, false));
+        card.addView(Ui.text(this, "On top of the equalizer. Above about 60% the amplifier may limit or distort at high volume.", 12, Ui.TEXT_3, false));
         chips();
     }
 
@@ -444,15 +448,21 @@ public class MainActivity extends Activity {
             } else {
                 speed = (float) st.optDouble("speed_kmh", -1);
                 simulated = st.optBoolean("sim");
+                setBose(st.optBoolean("bose"));
                 JSONArray ss = st.optJSONArray("sessions");
                 boolean playing = ss != null && ss.length() > 0;
+                String fxError = st.optString("fx_error", "");
                 if (!cfg.on) title = "Off";
                 else if (playing) { title = "Tuning phone audio"; dot = Ui.ACCENT; }
+                else if (fxError.length() > 0) { title = "Can't tune this car's audio"; dot = Ui.WARN; }
                 else title = "Waiting for phone audio";
                 String dsc = st.optString("dsc");
-                detail = (cfg.speedOn ? "Speed: volume " + Ui.dB(st.optDouble("speed_vol_mB", 0)) + ", bass " + Ui.dB(st.optDouble("speed_bass_mB", 0))
-                        + ", treble " + Ui.dB(st.optDouble("speed_treble_mB", 0)) : "Speed tuning off")
-                        + ("off".equals(dsc) ? "  •  Bose DSC held off" : "on".equals(dsc) ? "  •  Bose DSC on" : "");
+                detail = (!cfg.speedOn ? "Speed tuning off"
+                        : speed < 0 ? "Speed tuning: no speed from HMG-API"
+                        : "Speed: volume " + Ui.dB(st.optDouble("speed_vol_mB", 0)) + ", bass " + Ui.dB(st.optDouble("speed_bass_mB", 0))
+                        + ", treble " + Ui.dB(st.optDouble("speed_treble_mB", 0)))
+                        + (!bose ? "" : "off".equals(dsc) ? "  •  Bose DSC held off" : "on".equals(dsc) ? "  •  Bose DSC on" : "");
+                if (cfg.on && !playing && fxError.length() > 0) detail = "Android's audio effects: " + fxError;
             }
         } catch (Exception e) {
             title = "Engine not running";
@@ -466,6 +476,17 @@ public class MainActivity extends Activity {
             curve.mph = speed < 0 ? -1 : (float) Config.mph(speed);
             curve.invalidate();
         }
+    }
+
+    /** show or hide the Bose page (from the status tick, a posted runnable: rebuilding here is safe) */
+    void setBose(boolean has) {
+        if (has == bose) return;
+        bose = has;
+        if (!bose && page == BOSE) {
+            page = 0;
+            showPage();
+        }
+        nav();
     }
 
     static String read(File f) throws Exception {

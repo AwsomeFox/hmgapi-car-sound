@@ -10,7 +10,9 @@ import org.json.JSONObject;
  *    "speed": {"on": bool, "vol": [mB x5], "bass": [mB x5], "treble": [mB x5]}, "dsc": "leave"|"off"|"on"}
  * The speed lists are the extra volume, bass and treble at MPH's speeds (0 at a standstill, in
  * between linear, past the last speed as at it).
- * mB: millibels (100 = 1 dB). Bands: Android's equalizer, 60 Hz, 230 Hz, 910 Hz, 3.6 kHz, 14 kHz.
+ * mB: millibels (100 = 1 dB). Bands: 60 Hz, 230 Hz, 910 Hz, 3.6 kHz, 14 kHz, Android's usual
+ * 5-band equalizer (eqAt maps them onto a car whose equalizer has others). "dsc" only acts on a
+ * car with the Bose amplifier's Dynamic Speed Compensation.
  */
 public final class Config {
     public static final String MOD = "car-sound";
@@ -126,6 +128,25 @@ public final class Config {
             py = pts[i];
         }
         return py;
+    }
+
+    /** speed bass goes on equalizer bands below this, speed treble on bands at or above BASS_HZ... TREBLE_HZ */
+    public static final double BASS_HZ = 150, TREBLE_HZ = 2000;
+
+    /**
+     * The owner's 5 bands (at FREQ) at any frequency (Hz), for a car whose equalizer has other
+     * bands: linear in log frequency between FREQ's, flat past the first and last. At FREQ's own
+     * frequencies (Android's usual 5-band equalizer) it's the band itself.
+     */
+    public static double eqAt(int[] bands, double hz) {
+        if (hz <= FREQ[0]) return bands[0];
+        for (int i = 1; i < FREQ.length; i++) {
+            if (hz <= FREQ[i]) {
+                double t = Math.log(hz / FREQ[i - 1]) / Math.log((double) FREQ[i] / FREQ[i - 1]);
+                return bands[i - 1] + (bands[i] - bands[i - 1]) * t;
+            }
+        }
+        return bands[FREQ.length - 1];
     }
 
     public static double mph(double kmh) {

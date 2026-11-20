@@ -32,6 +32,15 @@ public final class ConfigTest {
         check("speed tuning off adds nothing", near(c.speedAt(Config.VOL, 80), 0));
         check("km/h to mph", near(Config.mph(100), 62.1371));
 
+        int[] eq = { 700, -200, 0, 150, 200 };
+        for (int i = 0; i < Config.FREQ.length; i++) check("equalizer at " + Config.FREQ[i] + " Hz is its band", near(Config.eqAt(eq, Config.FREQ[i]), eq[i]));
+        check("equalizer below 60 Hz is the 60 Hz band", near(Config.eqAt(eq, 31), 700));
+        check("equalizer above 14 kHz is the 14 kHz band", near(Config.eqAt(eq, 16000), 200));
+        check("equalizer between bands is between them", Config.eqAt(eq, 120) < 700 && Config.eqAt(eq, 120) > -200);
+        check("equalizer midway in log frequency is the average", near(Config.eqAt(eq, Math.sqrt(60.0 * 230)), 250));
+        check("speed bass only on the lowest of the usual bands", Config.FREQ[0] < Config.BASS_HZ && Config.FREQ[1] >= Config.BASS_HZ);
+        check("speed treble on the top two of the usual bands", Config.FREQ[2] < Config.TREBLE_HZ && Config.FREQ[3] >= Config.TREBLE_HZ);
+
         check("five speed points", Config.MPH.length == 5);
         for (int i = 1; i < Config.MPH.length; i++) check("speed points rise (" + Config.MPH[i] + " mph)", Config.MPH[i] > Config.MPH[i - 1]);
         for (int k = 0; k < 3; k++) {

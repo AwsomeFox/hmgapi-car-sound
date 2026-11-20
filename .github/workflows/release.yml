@@ -1,0 +1,99 @@
+# Builds Car Sound for a release made in GitHub's UI and attaches it, with its NEMESIS
+# packages: Releases -> Draft a new release -> tag v<version> (the "version" in
+# car-sound/mod.json, and android:versionName in the app's manifest) -> Publish. To build
+# again for an existing release (after a failed run, say): Actions -> Release -> Run
+# workflow, with its tag.
+#
+# Needs three repository secrets (Settings -> Secrets and variables -> Actions):
+#   HMGAPI_AUTHOR_KEY           the contents of the HMG-API author key file
+#                               (hmgapi.engine.Signing keygen). HMG-API only updates an
+#                               installed mod signed with the same key.
+#   CAR_SOUND_APP_KEYSTORE      the app's signing keystore (.p12), base64. Android only
+#                               updates an installed app signed with the same key.
+#   CAR_SOUND_APP_KEYSTORE_PASS its password
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach to (v<version>)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  car-sound:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tag
+        id: tag
+        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: The tag is the mod's version
+        id: version
+        run: |
+          v=$(python3 -c 'import json; print(json.load(open("car-sound/mod.json"))["version"])')
+          if [ "v$v" != "${{ steps.tag.outputs.tag }}" ]; then
+            echo "::error::release tag ${{ steps.tag.outputs.tag }} isn't v$v, the version in car-sound/mod.json"
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Android SDK (build-tools with d8, aapt2, apksigner; a platform android.jar)
+        run: |
+          ls "$ANDROID_HOME"/build-tools/*/d8 >/dev/null 2>&1 && ls "$ANDROID_HOME"/platforms/android-*/android.jar >/dev/null 2>&1 \
+            || yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0" "platforms;android-35" >/dev/null
+
+      - name: The HMG-API mod SDK (hmgapi-sdk.json)
+        run: sh tools/sdk.sh | sed 's/; export.*//' >> "$GITHUB_ENV"
+
+      - name: Test
+        run: sh test/run.sh
+
+      - name: Signed build
+        env:
+          AUTHOR_KEY: ${{ secrets.HMGAPI_AUTHOR_KEY }}
+          APP_KEYSTORE_B64: ${{ secrets.CAR_SOUND_APP_KEYSTORE }}
+          APP_KEYSTORE_PASS: ${{ secrets.CAR_SOUND_APP_KEYSTORE_PASS }}
+        run: |
+          for s in AUTHOR_KEY APP_KEYSTORE_B64 APP_KEYSTORE_PASS; do
+            eval "x=\${$s}"
+            [ -n "$x" ] || { echo "::error::a release secret isn't set ($s): see the top of .github/workflows/release.yml"; exit 1; }
+          done
+          umask 077
+          printf '%s\n' "$AUTHOR_KEY" > "$RUNNER_TEMP/author.key"
+          # HMG-API's signer wants the public key beside it (<key>.pub): derived from the private one
+          base64 -d < "$RUNNER_TEMP/author.key" | openssl pkey -inform DER -pubout -outform DER | base64 -w0 > "$RUNNER_TEMP/author.key.pub"
+          echo >> "$RUNNER_TEMP/author.key.pub"
+          printf '%s' "$APP_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/app.p12"
+          APP_KEYSTORE=$RUNNER_TEMP/app.p12 sh build.sh "$RUNNER_TEMP/author.key"
+          rm -f "$RUNNER_TEMP/author.key" "$RUNNER_TEMP/author.key.pub" "$RUNNER_TEMP/app.p12"
+          ls -l "out/car-sound-${{ steps.version.outputs.version }}.zip"
+
+      - name: NEMESIS packages
+        # the SDK's mknemesismod.sh: the signed mod as NEMESIS package hmgapi.car-sound
+        #   car-sound-<v>-nemesis.zip          for a USB stick, as NEMESIS's own downloads
+        #   car-sound-<v>-nemesis-package.zip  the package itself (NEMESIS Package Store)
+        run: sh "$HMGAPI_SDK/bin/mknemesismod.sh" "out/car-sound-${{ steps.version.outputs.version }}.zip" "$PWD/out"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          (cd out && sha256sum "car-sound-$V.zip" "car-sound-$V-nemesis.zip" "car-sound-$V-nemesis-package.zip" > SHA256SUMS)
+          gh release upload "${{ steps.tag.outputs.tag }}" --clobber \
+            "out/car-sound-$V.zip" "out/car-sound-$V-nemesis.zip" "out/car-sound-$V-nemesis-package.zip" out/SHA256SUMS

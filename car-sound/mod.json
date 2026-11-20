@@ -1,0 +1,42 @@
+{
+  "id": "car-sound",
+  "name": "Car Sound",
+  "version": "0.2.2",
+  "hmgapi": ">=1.1.0",
+  "authors": [
+    "AwsomeFox"
+  ],
+  "license": "AGPL-3.0",
+  "description": "Better phone audio on Gen5W cars with the Bose system: a 5-band equalizer and bass boost on Android Auto and CarPlay audio, volume, bass and treble that follow the car's speed, and the Bose Dynamic Speed Compensation switch. Radio and Bluetooth audio are left as they are. Turned off or removed, the sound is as before. Open it from the Car Sound tile in the app menu.",
+  "apps": [
+    {
+      "apk": "app/CarSound.apk",
+      "package": "com.carsound.app"
+    }
+  ],
+  "provides": {
+    "launcher": [
+      {
+        "package": "com.carsound.app",
+        "class": ".MainActivity",
+        "title": "Car Sound",
+        "icon": "icon/icon.png",
+        "icon_night": "icon/icon_night.png",
+        "icon_disabled": "icon/icon_disabled.png",
+        "icon_disabled_night": "icon/icon_disabled_night.png"
+      }
+    ]
+  },
+  "services": [
+    {
+      "name": "engine",
+      "script": "svc/engine.sh",
+      "user": "root"
+    }
+  ],
+  "vehicle": {
+    "read": [
+      "speed"
+    ]
+  }
+}

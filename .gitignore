@@ -1,0 +1,7 @@
+out/
+keys/
+.hmgapi/
+*.key
+*.key.pub
+*.p12
+.DS_Store

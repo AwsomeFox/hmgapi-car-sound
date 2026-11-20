@@ -1,0 +1,40 @@
+# Builds and tests Car Sound on every push and pull request, with the HMG-API mod SDK
+# hmgapi-sdk.json pins. The build is signed with throwaway keys (the release workflow signs
+# with the real ones) and kept as the run's artifact.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  car-sound:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK (build-tools with d8, aapt2, apksigner; a platform android.jar)
+        run: |
+          ls "$ANDROID_HOME"/build-tools/*/d8 >/dev/null 2>&1 && ls "$ANDROID_HOME"/platforms/android-*/android.jar >/dev/null 2>&1 \
+            || yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0" "platforms;android-35" >/dev/null
+
+      - name: The HMG-API mod SDK (hmgapi-sdk.json)
+        run: sh tools/sdk.sh | sed 's/; export.*//' >> "$GITHUB_ENV"
+
+      - name: Test (and a test build)
+        run: sh test/run.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: car-sound-test-build
+          path: out/car-sound-*.zip
+          if-no-files-found: error

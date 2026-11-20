@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "settings": [
+    { "key": "on", "type": "text", "default": "1", "private": true, "title": "Car Sound on", "description": "1: Car Sound's equalizer, bass boost and speed compensation on phone audio. 0: the sound as without Car Sound." },
+    { "key": "config", "type": "text", "default": "", "private": true, "title": "Sound", "description": "Set on Car Sound's screen: the equalizer, bass boost, speed compensation and the Bose Dynamic Speed Compensation choice (JSON)." }
+  ]
+}

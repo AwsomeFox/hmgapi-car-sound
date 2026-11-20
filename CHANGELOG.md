@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1
+
+- Cars without the Bose system: the Bose page is hidden, and Car Sound never touches the Bose
+  speed compensation setting. The engine asks the car whether it has Bose DSC the same way the
+  car's own Sound settings do.
+- Head units whose equalizer has other bands than Android's usual five: the five settings are
+  spread over the bands it has, by frequency, within the levels it takes.
+- The status says when the car's audio can't be tuned (Android's audio effects fail) and when
+  HMG-API has no speed for the car.
+- Finds Android Auto and CarPlay audio from a sub-process of either app too.
+
 ## 0.1.0
 
 First public release.

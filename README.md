@@ -3,6 +3,8 @@
 An [HMG-API](https://github.com/Open-HMG/HMG-API) mod for better phone audio on Hyundai, Kia
 and Genesis Gen5W head units, tuned on a 2024 Ioniq 5 Limited with the Bose system.
 
+![The equalizer page: presets, a five-band curve and bass boost](docs/screenshots/equalizer.png)
+
 - **Equalizer:** 5 bands (60 Hz, 230 Hz, 910 Hz, 3.6 kHz, 14 kHz; ±12 dB) and bass boost on
   Android Auto and CarPlay audio, with presets: Recommended, Deep bass, Harman car, Highway,
   Clear, Low volume, Voices, Flat.
@@ -14,6 +16,19 @@ and Genesis Gen5W head units, tuned on a 2024 Ioniq 5 Limited with the Bose syst
 
 Radio, Bluetooth and the car's own sounds are left alone. Turned off or removed, the sound is
 as it was.
+
+## Screenshots
+
+On the head unit of a 2024 Ioniq 5 Limited (Bose).
+
+**Speed:** drag the points to set how much louder (or how much more bass or treble) phone audio
+gets at each speed. The faint lines are the other two curves.
+
+![The speed page: the volume curve from 0 to +4 dB between 20 and 80 mph](docs/screenshots/speed.png)
+
+**The app menu:** Car Sound's tile, after the head unit's first restart.
+
+![The head unit's app menu with the Car Sound tile](docs/screenshots/launcher.png)
 
 ## Install
 

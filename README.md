@@ -16,7 +16,7 @@ and Genesis Gen5W head units, tuned on a 2024 Ioniq 5 Limited with the Bose syst
 
 Radio, Bluetooth and the car's own sounds are left alone. Turned off or removed, the sound is
 as it was.
-
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X3V32AZ1FO)
 ## Screenshots
 
 On the head unit of a 2024 Ioniq 5 Limited (Bose).

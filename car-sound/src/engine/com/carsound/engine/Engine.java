@@ -27,8 +27,9 @@ import java.util.Set;
 
 /**
  * Car Sound's engine: Android's equalizer and bass boost on phone projection audio
- * (Android Auto, CarPlay), volume, bass and treble that follow the car's speed, and the Bose Dynamic Speed
- * Compensation switch. HMG-API runs it as root through svc/engine.sh (app_process).
+ * (Android Auto, CarPlay), volume, bass and treble that follow the car's speed, and, on a car
+ * with the Bose amplifier, its Dynamic Speed Compensation switch. HMG-API runs it as root through
+ * svc/engine.sh (app_process).
  *
  * Clip guard: Android 4.4's equalizer already turns its own output down by its largest boost,
  * and the loudness enhancer (the speed volume) is a 7:1 compressor with a hard clamp at full
@@ -41,6 +42,11 @@ import java.util.Set;
  * values only), read again whenever it changes. Status for the app: Config.STATUS. Stopping
  * (svc/engine.sh's trap writes "stop" next to it): effects released, so the audio is as it
  * was, and Bose DSC put back.
+ *
+ * Other cars: the equalizer follows the bands the car's equalizer has (Config.eqAt), and the
+ * car's speed compensation (Amp's profile: Bose DSC 47, or SDVC 43 on other amplifiers) is only
+ * touched when the car says it has it (getSoundAvailability, as the car's own Sound settings
+ * ask), since on another amplifier that setting may not exist.
  */
 public final class Engine {
     static final String SETTINGS = "/data/hmgapi/settings/" + Config.MOD + ".json";
@@ -53,6 +59,8 @@ public final class Engine {
     static int speedComp() {
         return Amp.profile != null ? Amp.profile.optInt("speed_comp", 47) : 47;
     }
+    /** recheck whether the car has that setting this often (ms): the micom can answer late after a start */
+    static final long BOSE_RECHECK = 60000, BOSE_RETRY = 5000;
     static final SimpleDateFormat T = new SimpleDateFormat("MM-dd HH:mm:ss");
 
     static final class Fx {
@@ -60,6 +68,8 @@ public final class Engine {
         final Equalizer eq;
         final BassBoost bb;
         LoudnessEnhancer le;   // the speed tuning's volume: louder with a limiter, so it doesn't clip
+        final double[] hz;     // the centre of each of the car's equalizer bands
+        final short lo, hi;    // and the levels they take (mB)
         Visualizer vis;        // last in the chain: the peak leaving Car Sound
         long seen;
 
@@ -67,6 +77,12 @@ public final class Engine {
             this.session = session;
             eq = new Equalizer(Integer.MAX_VALUE, session);
             bb = new BassBoost(Integer.MAX_VALUE, session);
+            short n = eq.getNumberOfBands();
+            hz = new double[n];
+            for (short i = 0; i < n; i++) hz[i] = eq.getCenterFreq(i) / 1000.0;   // mHz
+            short[] range = eq.getBandLevelRange();
+            lo = range[0];
+            hi = range[1];
             try {
                 le = new LoudnessEnhancer(session);
             } catch (Throwable t) {
@@ -99,7 +115,6 @@ public final class Engine {
     static final double[] now = new double[3];
     static int dscOriginal = -1;
     static String dscApplied = "";
-    static short lo = -1500, hi = 1500;
     /** the clip guard: how far the loudness enhancer's gain is backed off now (mB) */
     static double guard, guardMost;
     /** this second's highest output peak (mB, 0 = full scale), whether it reached full scale, and the last second that did */
@@ -109,6 +124,13 @@ public final class Engine {
     static final java.util.ArrayDeque<Long> clips = new java.util.ArrayDeque<Long>();
     static final int CLIP_MB = -10;      // a peak within 0.1 dB of full scale: the clamp
     static final int GUARD_MAX = 600;
+    /** the car has its speed compensation setting (Amp's profile: Bose DSC or SDVC; getSoundAvailability); null until it has answered */
+    static Boolean bose;
+    static int boseType = -1;
+    static long boseAt;
+    static String boseWhy;
+    /** why phone audio can't be tuned (the last session's effects failed), or null */
+    static String fxError;
 
     public static void main(String[] a) throws Exception {
         DIR.mkdirs();
@@ -130,6 +152,7 @@ public final class Engine {
                         smooth();
                         Amp.tick(cfg, now[Config.BASS], now[Config.TREBLE], carPlay, realKmh == 0);
                         apply();
+                        bose();
                         dsc();
                         Report.check(cfg);
                         status(null);
@@ -288,7 +311,7 @@ public final class Engine {
             if (!n.matches("[0-9]+")) continue;
             try {
                 String cmd = read(new File(d, "cmdline")).replace('\0', ' ').trim();
-                for (String p : PACKAGES) if (p.equals(cmd)) out.put(Integer.parseInt(n), p);
+                for (String p : PACKAGES) if (cmd.equals(p) || cmd.startsWith(p + ":")) out.put(Integer.parseInt(n), p);   // or one of its processes
             } catch (Exception e) {
                 // gone
             }
@@ -330,13 +353,14 @@ public final class Engine {
             if (f == null) {
                 try {
                     f = new Fx(s);
-                    short[] range = f.eq.getBandLevelRange();
-                    lo = range[0];
-                    hi = range[1];
                     fx.put(s, f);
-                    log("audio session " + s + ": equalizer and bass boost on it");
+                    fxError = null;
+                    StringBuilder b = new StringBuilder();
+                    for (double c : f.hz) b.append(b.length() == 0 ? "" : ", ").append(Math.round(c)).append(" Hz");
+                    log("audio session " + s + ": equalizer (" + b + "; " + f.lo / 100 + " to " + f.hi / 100 + " dB) and bass boost on it");
                 } catch (Throwable t) {
-                    log("audio session " + s + ": no effects (" + t + ")");
+                    if (!String.valueOf(t).equals(fxError)) log("audio session " + s + ": no effects (" + t + ")");
+                    fxError = String.valueOf(t);
                     continue;
                 }
             }
@@ -370,11 +394,11 @@ public final class Engine {
                     if (f.le != null && f.le.getEnabled()) f.le.setEnabled(false);
                     continue;
                 }
-                short n = f.eq.getNumberOfBands();
-                for (short i = 0; i < n && i < 5; i++) {
+                for (short i = 0; i < f.hz.length; i++) {
+                    double c = f.hz[i];
                     // the lifts (speed curves, loudness) Android makes: all of them, or none when the amplifier makes them
-                    double mB = cfg.bands[i] + (i == 0 ? Amp.restB : i >= 3 ? Amp.restT : 0);
-                    short want = (short) Math.max(lo, Math.min(hi, Math.round(mB)));
+                    double mB = Config.eqAt(cfg.bands, c) + (c < Config.BASS_HZ ? Amp.restB : 0) + (c >= Config.TREBLE_HZ ? Amp.restT : 0);
+                    short want = (short) Math.max(f.lo, Math.min(f.hi, Math.round(mB)));
                     if (f.eq.getBandLevel(i) != want) f.eq.setBandLevel(i, want);
                 }
                 if (f.le != null) {
@@ -440,8 +464,47 @@ public final class Engine {
         return m;
     }
 
+    /**
+     * Does the car have its speed compensation setting (speedComp(): Bose DSC 47 on a Bose
+     * amplifier, SDVC 43 on others)? Asked as the car's own Sound settings ask:
+     * getSoundAvailability on its audio service. Every 5 s until the car answers, then every
+     * minute (a micom that answered "no" while starting up gets another chance), and again
+     * when the profile names another setting.
+     */
+    static void bose() {
+        long t = System.currentTimeMillis();
+        if (boseType != speedComp()) {
+            bose = null;
+            boseType = speedComp();
+        }
+        if (t - boseAt < (bose == null ? BOSE_RETRY : BOSE_RECHECK)) return;
+        boseAt = t;
+        try {
+            Object au = audio();
+            boolean has = ((Number) call(au, "getSoundAvailability", speedComp())).intValue() > 0;
+            if (bose == null || bose != has) {
+                String amp = "";
+                try {
+                    amp = ", amplifier type " + call(au, "getAmpType");
+                } catch (Throwable e) {
+                    // not on this firmware: only for the log
+                }
+                log(has ? "the car has its speed compensation (setting " + speedComp() + ")" + amp + ": its switch is on the Car page"
+                        : "the car has no speed compensation setting " + speedComp() + amp + ": Car Sound leaves it alone");
+            }
+            bose = has;
+            boseWhy = null;
+        } catch (Throwable e) {
+            audio = null;
+            String why = String.valueOf(e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e);
+            if (!why.equals(boseWhy)) log("can't ask the car about its speed compensation (" + why + ")" + (bose == null ? ": its switch waits" : ""));
+            boseWhy = why;
+        }
+    }
+
     static void dsc() {
-        String want = cfg.on ? cfg.dsc : "leave";
+        if (bose == null) return;   // not known yet: change nothing
+        String want = cfg.on && bose ? cfg.dsc : "leave";   // "leave" still puts back a change made before (DSC_FILE)
         if (want.equals(dscApplied)) return;
         try {
             if ("leave".equals(want)) {
@@ -515,6 +578,8 @@ public final class Engine {
             s.put("guard_mB", Math.round(guard));
             Amp.status(s);
             Report.status(s);
+            if (bose != null) s.put("speed_comp_ok", bose.booleanValue());
+            if (fxError != null && fx.isEmpty()) s.put("fx_error", fxError);
             File tmp = new File(DIR, "status.json.tmp");
             FileOutputStream o = new FileOutputStream(tmp);
             o.write(s.toString().getBytes("UTF-8"));

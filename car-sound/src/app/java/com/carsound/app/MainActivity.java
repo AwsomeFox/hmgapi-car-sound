@@ -27,7 +27,8 @@ import java.util.Arrays;
 
 /**
  * Car Sound's screen (1920x720): a left rail with the master switch, what the engine is doing
- * and the pages; on the right the page: Equalizer, Speed, Loudness or Car. Every change is saved to
+ * and the pages; on the right the page: Equalizer, Speed, Loudness or Car. The Car page's speed compensation
+ * switch shows only on a car that has the setting (status "speed_comp_ok"). Every change is saved to
  * HMG-API at once (setting-set) and the engine applies it within a second.
  */
 public class MainActivity extends Activity {
@@ -51,6 +52,7 @@ public class MainActivity extends Activity {
     boolean simulated;   // the engine's speed is a parked listening test (sim-mph)
     boolean loaded;
     long reportAsked;
+    boolean bose;   // the engine found the car's speed compensation setting (Bose DSC or SDVC)
 
     @Override
     protected void onCreate(Bundle b) {
@@ -86,7 +88,7 @@ public class MainActivity extends Activity {
         r.setBackgroundColor(Ui.RAIL);
         r.setPadding(Ui.px(20), Ui.px(12), Ui.px(20), Ui.px(6));
         r.addView(Ui.text(this, "Car Sound", 24, Ui.TEXT, true));
-        r.addView(Ui.text(this, "Phone audio, tuned for the Bose system", 13, Ui.TEXT_2, false));
+        r.addView(Ui.text(this, "Better phone audio for your car", 13, Ui.TEXT_2, false));
 
         LinearLayout sw = new LinearLayout(this);
         sw.setOrientation(LinearLayout.HORIZONTAL);
@@ -199,6 +201,7 @@ public class MainActivity extends Activity {
         pageHolder.removeAllViews();
         curve = null;
         carToneNow = guardNow = dscTitle = null;
+        dscCard = null;
         speedCustom = null;
         loudNow = ampNow = null;
         if (page == 0) equalizer();
@@ -284,7 +287,7 @@ public class MainActivity extends Activity {
         });
         boostSlider = (Ui.Slider) sl[0];
         boostValue = (TextView) sl[1];
-        card.addView(Ui.text(this, "On top of the equalizer. Above about 60% the Bose amplifier may limit or distort at high volume.", 12, Ui.TEXT_3, false));
+        card.addView(Ui.text(this, "On top of the equalizer. Above about 60% the amplifier may limit or distort at high volume.", 12, Ui.TEXT_3, false));
         chips();
     }
 
@@ -439,8 +442,12 @@ public class MainActivity extends Activity {
 
     TextView carToneNow, guardNow, dscTitle;
 
+    LinearLayout dscCard;
+
     void bose() {
         LinearLayout c = Ui.card(this);
+        dscCard = c;
+        c.setVisibility(bose ? View.VISIBLE : View.GONE);
         dscTitle = Ui.text(this, liveSpeedComp, 17, Ui.TEXT, true);
         c.addView(dscTitle);
         int sel = "off".equals(cfg.dsc) ? 1 : "on".equals(cfg.dsc) ? 2 : 0;
@@ -651,10 +658,13 @@ public class MainActivity extends Activity {
             } else {
                 speed = (float) st.optDouble("speed_kmh", -1);
                 simulated = st.optBoolean("sim");
+                setBose(st.optBoolean("speed_comp_ok"));
                 JSONArray ss = st.optJSONArray("sessions");
                 boolean playing = ss != null && ss.length() > 0;
+                String fxError = st.optString("fx_error", "");
                 if (!cfg.on) title = "Off";
                 else if (playing) { title = "Tuning phone audio"; dot = Ui.ACCENT; }
+                else if (fxError.length() > 0) { title = "Can't tune this car's audio"; dot = Ui.WARN; }
                 else title = "Waiting for phone audio";
                 liveTone = st.optJSONArray("car_tone");
                 livePeak = st.optInt("peak_mB", -9600);
@@ -675,10 +685,13 @@ public class MainActivity extends Activity {
                 }
                 showLive();
                 String dsc = st.optString("dsc");
-                detail = (cfg.speedOn ? "Speed: volume " + Ui.dB(st.optDouble("speed_vol_mB", 0)) + ", bass " + Ui.dB(st.optDouble("speed_bass_mB", 0))
-                        + ", treble " + Ui.dB(st.optDouble("speed_treble_mB", 0)) : "Speed tuning off")
-                        + ("off".equals(dsc) ? "  •  Bose DSC held off" : "on".equals(dsc) ? "  •  Bose DSC on" : "")
+                detail = (!cfg.speedOn ? "Speed tuning off"
+                        : speed < 0 ? "Speed tuning: no speed from HMG-API"
+                        : "Speed: volume " + Ui.dB(st.optDouble("speed_vol_mB", 0)) + ", bass " + Ui.dB(st.optDouble("speed_bass_mB", 0))
+                        + ", treble " + Ui.dB(st.optDouble("speed_treble_mB", 0)))
+                        + (!bose ? "" : "off".equals(dsc) ? "  •  speed compensation held off" : "on".equals(dsc) ? "  •  speed compensation on" : "")
                         + (liveGuard > 0 ? "  •  clip guard " + Ui.dB(-liveGuard) : "");
+                if (cfg.on && !playing && fxError.length() > 0) detail = "Android's audio effects: " + fxError;
             }
         } catch (Exception e) {
             title = "Engine not running";
@@ -692,6 +705,12 @@ public class MainActivity extends Activity {
             curve.mph = speed < 0 ? -1 : (float) Config.mph(speed);
             curve.invalidate();
         }
+    }
+
+    /** show or hide the Car page's speed compensation switch (from the status tick: changing visibility, not rebuilding) */
+    void setBose(boolean has) {
+        bose = has;
+        if (dscCard != null) dscCard.setVisibility(bose ? View.VISIBLE : View.GONE);
     }
 
     static String read(File f) throws Exception {

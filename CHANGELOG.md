@@ -1,6 +1,39 @@
 # Changelog
 
-## 0.2.2
+## 0.5.0
+
+- **Clip guard:** a meter at the end of Car Sound's chain watches the peak it sends on; while it
+  reaches full scale (clipping), the speed volume backs off 1 dB a second, up to 6 dB, and comes
+  back once it's clear. The Car page shows the peak and the seconds clipped in the last minute.
+- **Speed presets:** Low, Medium (the new default), High and Max, or your own curves.
+- **Loudness** (new page): bass and treble lifted when the volume is low, as ears lose them,
+  from the car's volume for the source playing. Off by default.
+- **The car's amplifier:** the speed and loudness lifts can be made with the car's own Bass and
+  Treble, in steps on top of your setting, instead of Android's equalizer. The amplifier comes
+  after Android and has its own headroom; the lifts then reach every source. Profiles by
+  amplifier type (head unit, Mobis, Harman, Bose) aren't measured yet: see docs/AMPLIFIER.md.
+- **Car page** (was Bose): the car's own Bass, Mid and Treble as set or flat while Car Sound is
+  on (put back when it's off); the car's speed compensation (Bose DSC, or Speed Dependent
+  Volume on other amplifiers, shown only when the car has it); the clip guard.
+- **Save car report** (left rail): a text file for a GitHub issue, on a USB stick if one is in,
+  without serial numbers, the VIN, Bluetooth names or song details.
+- HMG-API 1.1.0-rc.8: Android's audio effects load again (rc.8 starts services in a way that
+  drops the library path).
+- For testing over adb: `sim.sh` (a simulated speed while parked) and `amp.sh` (amplifier sweeps,
+  test profiles, car reports).
+
+## 0.1.1
+
+- Cars without the Bose system: the Bose page is hidden, and Car Sound never touches the Bose
+  speed compensation setting. The engine asks the car whether it has Bose DSC the same way the
+  car's own Sound settings do.
+- Head units whose equalizer has other bands than Android's usual five: the five settings are
+  spread over the bands it has, by frequency, within the levels it takes.
+- The status says when the car's audio can't be tuned (Android's audio effects fail) and when
+  HMG-API has no speed for the car.
+- Finds Android Auto and CarPlay audio from a sub-process of either app too.
+
+## 0.1.0
 
 First public release.
 

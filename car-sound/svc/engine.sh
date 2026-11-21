@@ -11,7 +11,11 @@ stop() {
     exit 0
 }
 trap stop TERM INT HUP
-CLASSPATH=$J app_process /system/bin com.carsound.engine.Engine &
+# The runtime finds JNI libraries (the audio effects' audioeffect_jni) through java.library.path,
+# which it takes from LD_LIBRARY_PATH. HMG-API 1.1.0-rc.8 runs root services with an effective
+# group other than the real one, so the linker treats each exec as secure and drops LD_*
+# variables: give the runtime the path itself (it overrides the environment's).
+CLASSPATH=$J app_process -Djava.library.path=/vendor/lib:/system/lib /system/bin com.carsound.engine.Engine &
 P=$!
 wait $P
 echo "engine exited ($?)"

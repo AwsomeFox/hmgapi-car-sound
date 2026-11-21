@@ -27,15 +27,16 @@ import java.util.Arrays;
 
 /**
  * Car Sound's screen (1920x720): a left rail with the master switch, what the engine is doing
- * and the pages; on the right the page: Equalizer, Speed or Bose. Every change is saved to
+ * and the pages; on the right the page: Equalizer, Speed, Loudness or Car. Every change is saved to
  * HMG-API at once (setting-set) and the engine applies it within a second.
  */
 public class MainActivity extends Activity {
-    static final String[] PAGES = { "Equalizer", "Speed", "Bose" };
+    static final String[] PAGES = { "Equalizer", "Speed", "Loudness", "Car" };
     static final String[] PAGE_NOTES = {
         "Android Auto and CarPlay audio. Drag a point; the radio and Bluetooth audio aren't changed.",
         "Louder, more bass and more treble as you go faster, where road noise covers them.",
-        "The Bose system's own speed compensation, in the car's Sound settings.",
+        "More bass and treble when the volume is low, as ears lose them, and where Car Sound's lifts are made.",
+        "The car's own sound settings, and Car Sound's clip guard.",
     };
 
     Config cfg = new Config();
@@ -49,6 +50,7 @@ public class MainActivity extends Activity {
     float speed = -1;
     boolean simulated;   // the engine's speed is a parked listening test (sim-mph)
     boolean loaded;
+    long reportAsked;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -82,7 +84,7 @@ public class MainActivity extends Activity {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.VERTICAL);
         r.setBackgroundColor(Ui.RAIL);
-        r.setPadding(Ui.px(20), Ui.px(16), Ui.px(20), Ui.px(10));
+        r.setPadding(Ui.px(20), Ui.px(12), Ui.px(20), Ui.px(6));
         r.addView(Ui.text(this, "Car Sound", 24, Ui.TEXT, true));
         r.addView(Ui.text(this, "Phone audio, tuned for the Bose system", 13, Ui.TEXT_2, false));
 
@@ -90,7 +92,7 @@ public class MainActivity extends Activity {
         sw.setOrientation(LinearLayout.HORIZONTAL);
         sw.setGravity(Gravity.CENTER_VERTICAL);
         sw.setBackgroundDrawable(Ui.round(Ui.CARD, Ui.CARD_EDGE, 18));
-        sw.setPadding(Ui.px(16), Ui.px(8), Ui.px(12), Ui.px(8));
+        sw.setPadding(Ui.px(16), Ui.px(4), Ui.px(12), Ui.px(4));
         sw.addView(Ui.text(this, "Car Sound on", 17, Ui.TEXT, true), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         master = new Ui.Toggle(this);
         master.on = cfg.on;
@@ -102,12 +104,12 @@ public class MainActivity extends Activity {
             }
         };
         sw.addView(master);
-        r.addView(sw, Ui.lp(-1, -2, 0, 12));
+        r.addView(sw, Ui.lp(-1, -2, 0, 8));
 
         LinearLayout st = new LinearLayout(this);
         st.setOrientation(LinearLayout.VERTICAL);
         st.setBackgroundDrawable(Ui.round(Ui.CARD, Ui.CARD_EDGE, 18));
-        st.setPadding(Ui.px(16), Ui.px(10), Ui.px(16), Ui.px(10));
+        st.setPadding(Ui.px(16), Ui.px(6), Ui.px(16), Ui.px(6));
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
         statusDot = new View(this);
@@ -120,17 +122,32 @@ public class MainActivity extends Activity {
         statusSpeed.setPadding(0, Ui.px(2), 0, 0);
         st.addView(statusSpeed);
         statusDetail = Ui.text(this, "", 13, Ui.TEXT_2, false);
+        statusDetail.setMaxLines(2);
+        statusDetail.setEllipsize(android.text.TextUtils.TruncateAt.END);
         st.addView(statusDetail);
-        r.addView(st, Ui.lp(-1, -2, 0, 10));
+        r.addView(st, Ui.lp(-1, -2, 0, 8));
 
         navHolder = new LinearLayout(this);
         navHolder.setOrientation(LinearLayout.VERTICAL);
-        r.addView(navHolder, Ui.lp(-1, -2, 0, 10));
+        r.addView(navHolder, Ui.lp(-1, -2, 0, 6));
         nav();
 
         View spacer = new View(this);
         r.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1));
+        TextView rep = Ui.text(this, "Save car report", 14, Ui.ACCENT, true);
+        rep.setPadding(Ui.px(16), Ui.px(2), Ui.px(16), Ui.px(2));
+        rep.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                cfg.report = System.currentTimeMillis();
+                reportAsked = cfg.report;
+                saveNote.setText("Making the car report… (plug in a USB stick to get a copy)");
+                save();
+            }
+        });
+        r.addView(rep);
         saveNote = Ui.text(this, "", 12, Ui.TEXT_3, false);
+        saveNote.setMaxLines(2);
         r.addView(saveNote);
         return r;
     }
@@ -140,7 +157,7 @@ public class MainActivity extends Activity {
         for (int i = 0; i < PAGES.length; i++) {
             final int k = i;
             TextView t = Ui.text(this, PAGES[i], 17, i == page ? Ui.ACCENT : Ui.TEXT, true);
-            t.setPadding(Ui.px(16), Ui.px(8), Ui.px(16), Ui.px(8));
+            t.setPadding(Ui.px(16), Ui.px(5), Ui.px(16), Ui.px(5));
             t.setBackgroundDrawable(i == page ? Ui.round(Ui.ACCENT_DIM, 0, 16) : null);
             t.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -181,8 +198,12 @@ public class MainActivity extends Activity {
         pageNote.setText(PAGE_NOTES[page]);
         pageHolder.removeAllViews();
         curve = null;
+        carToneNow = guardNow = dscTitle = null;
+        speedCustom = null;
+        loudNow = ampNow = null;
         if (page == 0) equalizer();
         else if (page == 1) speedPage();
+        else if (page == 2) loudness();
         else bose();
     }
 
@@ -267,7 +288,47 @@ public class MainActivity extends Activity {
         chips();
     }
 
+    final java.util.List<TextView> speedChipViews = new java.util.ArrayList<TextView>();
+    TextView speedCustom;
+
+    void speedChips() {
+        int sel = cfg.speedPreset();
+        for (int i = 0; i < speedChipViews.size(); i++) {
+            TextView c = speedChipViews.get(i);
+            c.setTextColor(i == sel ? Ui.ON_ACCENT : Ui.TEXT);
+            c.setBackgroundDrawable(i == sel ? Ui.round(Ui.ACCENT, 0, 20) : Ui.round(0, Ui.CARD_EDGE, 20));
+        }
+        if (speedCustom != null) speedCustom.setText(sel < 0 ? "Your own curves" : "");
+    }
+
     void speedPage() {
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.HORIZONTAL);
+        chips.setGravity(Gravity.CENTER_VERTICAL);
+        chips.addView(Ui.text(this, "Compensation", 16, Ui.TEXT_2, true), Ui.lp(-2, -2, 0, 0));
+        speedChipViews.clear();
+        for (int i = 0; i < Config.SPEED_PRESETS.length; i++) {
+            final int k = i;
+            TextView c = Ui.chip(this, Config.SPEED_PRESET_NAMES[i], false, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    cfg.speed = Config.copy(Config.SPEED_PRESETS[k]);
+                    curve.cfg = cfg;
+                    curve.invalidate();
+                    speedChips();
+                    save();
+                }
+            });
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2);
+            p.leftMargin = Ui.px(10);
+            chips.addView(c, p);
+            speedChipViews.add(c);
+        }
+        speedCustom = Ui.text(this, "", 14, Ui.TEXT_3, false);
+        speedCustom.setPadding(Ui.px(14), 0, 0, 0);
+        chips.addView(speedCustom);
+        pageHolder.addView(chips, new LinearLayout.LayoutParams(-1, -2));
+
         LinearLayout top = Ui.card(this);
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -300,17 +361,88 @@ public class MainActivity extends Activity {
         curve.listener = new Ui.OnValue() {
             @Override
             public void value(int point, boolean done) {
-                if (done) save();
+                if (done) {
+                    speedChips();
+                    save();
+                }
             }
         };
         top.addView(curve, Ui.lp(-1, -2, 0, 6));
-        top.addView(Ui.text(this, "Drag a point: how much louder, or how much more bass or treble, at that speed. Changes follow your speed gently, about 1 dB a second. Volume and treble apply to phone audio only, like the equalizer.", 12, Ui.TEXT_3, false));
-        pageHolder.addView(top);
+        top.addView(Ui.text(this, "Pick a level, or drag a point: how much louder, or how much more bass or treble, at that speed. Changes follow your speed gently, about 1 dB a second. Phone audio only, like the equalizer.", 12, Ui.TEXT_3, false));
+        pageHolder.addView(top, Ui.lp(-1, -2, 0, 8));
+        speedChips();
     }
+
+    TextView loudNow, ampNow;
+
+    void loudness() {
+        LinearLayout c = Ui.card(this);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.addView(Ui.text(this, "Lift bass and treble at low volume", 17, Ui.TEXT, true));
+        loudNow = Ui.text(this, "", 13, Ui.ACCENT, true);
+        col.addView(loudNow);
+        row.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+        Ui.Toggle t = new Ui.Toggle(this);
+        t.on = cfg.loudOn;
+        t.listener = new Ui.OnValue() {
+            @Override
+            public void value(int v, boolean done) {
+                cfg.loudOn = v == 1;
+                save();
+            }
+        };
+        row.addView(t);
+        c.addView(row);
+        final Fmt dbf = new Fmt() {
+            @Override
+            public String f(int v) { return Ui.dB(v); }
+        };
+        final Fmt volf = new Fmt() {
+            @Override
+            public String f(int v) { return "volume " + v; }
+        };
+        slider(c, "Bass lift at its most", 0, Config.LOUD_MAX, 50, cfg.loudBass, dbf, new Ui.OnValue() {
+            @Override
+            public void value(int v, boolean done) { cfg.loudBass = v; if (done) save(); }
+        });
+        slider(c, "Treble lift at its most", 0, Config.LOUD_MAX, 50, cfg.loudTreble, dbf, new Ui.OnValue() {
+            @Override
+            public void value(int v, boolean done) { cfg.loudTreble = v; if (done) save(); }
+        });
+        slider(c, "All of it at or below", 0, Config.VOLUME_STEPS, 1, cfg.loudFull, volf, new Ui.OnValue() {
+            @Override
+            public void value(int v, boolean done) { cfg.loudFull = v; if (done) save(); }
+        });
+        slider(c, "None from", 0, Config.VOLUME_STEPS, 1, cfg.loudNone, volf, new Ui.OnValue() {
+            @Override
+            public void value(int v, boolean done) { cfg.loudNone = v; if (done) save(); }
+        });
+        pageHolder.addView(c);
+
+        LinearLayout a = Ui.card(this);
+        a.addView(Ui.text(this, "Where the speed and loudness lifts are made", 17, Ui.TEXT, true));
+        a.addView(Ui.segmented(this, new String[] { "Android (phone audio)", "Car's amplifier (every source)" }, "amp".equals(cfg.lift) ? 1 : 0, new Ui.OnValue() {
+            @Override
+            public void value(int v, boolean done) {
+                cfg.lift = v == 1 ? "amp" : "android";
+                save();
+            }
+        }), Ui.lp(-1, -2, 0, 8));
+        ampNow = Ui.text(this, "", 13, Ui.TEXT_2, false);
+        a.addView(ampNow, Ui.lp(-1, -2, 0, 6));
+        pageHolder.addView(a, Ui.lp(-1, -2, 0, 8));
+        showLive();
+    }
+
+    TextView carToneNow, guardNow, dscTitle;
 
     void bose() {
         LinearLayout c = Ui.card(this);
-        c.addView(Ui.text(this, "Bose Dynamic Speed Compensation", 17, Ui.TEXT, true));
+        dscTitle = Ui.text(this, liveSpeedComp, 17, Ui.TEXT, true);
+        c.addView(dscTitle);
         int sel = "off".equals(cfg.dsc) ? 1 : "on".equals(cfg.dsc) ? 2 : 0;
         c.addView(Ui.segmented(this, new String[] { "As set in the car", "Off with Car Sound", "On" }, sel, new Ui.OnValue() {
             @Override
@@ -318,9 +450,84 @@ public class MainActivity extends Activity {
                 cfg.dsc = v == 1 ? "off" : v == 2 ? "on" : "leave";
                 save();
             }
-        }), Ui.lp(-1, -2, 0, 10));
-        c.addView(Ui.text(this, "Use one speed compensation, not both: with Car Sound's speed tuning on, choose \"Off with Car Sound\". Car Sound puts the car's setting back when it's turned off or removed.", 14, Ui.TEXT_2, false), Ui.lp(-1, -2, 0, 10));
+        }), Ui.lp(-1, -2, 0, 8));
+        c.addView(Ui.text(this, "Use one speed compensation: with Car Sound's speed tuning on, choose \"Off with Car Sound\".", 13, Ui.TEXT_2, false), Ui.lp(-1, -2, 0, 6));
         pageHolder.addView(c);
+
+        LinearLayout t = Ui.card(this);
+        LinearLayout tr = new LinearLayout(this);
+        tr.setGravity(Gravity.CENTER_VERTICAL);
+        tr.addView(Ui.text(this, "The car's Bass, Mid and Treble", 17, Ui.TEXT, true), new LinearLayout.LayoutParams(0, -2, 1));
+        carToneNow = Ui.text(this, "", 15, Ui.ACCENT, true);
+        tr.addView(carToneNow);
+        t.addView(tr);
+        t.addView(Ui.segmented(this, new String[] { "As set in the car", "Flat with Car Sound" }, "flat".equals(cfg.tone) ? 1 : 0, new Ui.OnValue() {
+            @Override
+            public void value(int v, boolean done) {
+                cfg.tone = v == 1 ? "flat" : "leave";
+                save();
+            }
+        }), Ui.lp(-1, -2, 0, 8));
+        t.addView(Ui.text(this, "The amplifier applies them after Car Sound, on every source. Flat leaves the tone to Car Sound; turned off, Car Sound puts yours back.", 13, Ui.TEXT_2, false), Ui.lp(-1, -2, 0, 6));
+        pageHolder.addView(t, Ui.lp(-1, -2, 0, 8));
+
+        LinearLayout g = Ui.card(this);
+        LinearLayout gr = new LinearLayout(this);
+        gr.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout gl = new LinearLayout(this);
+        gl.setOrientation(LinearLayout.VERTICAL);
+        gl.addView(Ui.text(this, "Clip guard", 17, Ui.TEXT, true));
+        guardNow = Ui.text(this, "", 13, Ui.TEXT_2, false);
+        gl.addView(guardNow);
+        gr.addView(gl, new LinearLayout.LayoutParams(0, -2, 1));
+        Ui.Toggle gt = new Ui.Toggle(this);
+        gt.on = cfg.guard;
+        gt.listener = new Ui.OnValue() {
+            @Override
+            public void value(int v, boolean done) {
+                cfg.guard = v == 1;
+                save();
+            }
+        };
+        gr.addView(gt);
+        g.addView(gr);
+        g.addView(Ui.text(this, "Watches the peak leaving Car Sound. If it hits full scale (clipping), the speed volume backs off until it's clear.", 13, Ui.TEXT_2, false), Ui.lp(-1, -2, 0, 6));
+        pageHolder.addView(g, Ui.lp(-1, -2, 0, 8));
+        showLive();
+    }
+
+    // the Car page's live lines, from the engine's status
+    JSONArray liveTone, liveLoud, liveSteps;
+    int livePeak = -9600, liveClips, liveGuard, liveVolume = -1, liveAmpType = -2, liveWrites;
+    String liveAmpName = "", liveSpeedComp = "The car's speed compensation";
+    boolean liveVerified, liveTesting, liveTestProfile;
+
+    void showLive() {
+        if (carToneNow != null) {
+            carToneNow.setText(liveTone == null ? "" : "Now: bass " + signed(liveTone.optInt(0)) + "  mid " + signed(liveTone.optInt(1)) + "  treble " + signed(liveTone.optInt(2)));
+        }
+        if (dscTitle != null) dscTitle.setText(liveSpeedComp);
+        if (loudNow != null) {
+            loudNow.setText(liveVolume < 0 ? "Volume not known yet" : "Volume " + liveVolume + ": bass "
+                    + Ui.dB(liveLoud == null ? 0 : liveLoud.optInt(0)) + ", treble " + Ui.dB(liveLoud == null ? 0 : liveLoud.optInt(1)));
+        }
+        if (ampNow != null) {
+            String amp = liveAmpType < 0 ? "The amplifier type isn't known yet." : "This car: " + liveAmpName + " (type " + liveAmpType + ")"
+                    + (liveVerified ? "." : ", not tested with Car Sound yet: try it parked, then send a car report.")
+                    + (liveTestProfile ? " Test profile in use." : "");
+            String steps = liveSteps == null ? "" : "  Now: bass +" + liveSteps.optInt(0) + ", treble +" + liveSteps.optInt(2) + " steps"
+                    + (liveTesting ? " (test)" : "") + ", " + liveWrites + " amplifier writes this drive.";
+            ampNow.setText("Android: phone audio only, smooth, but each boost turns the rest down. Amplifier: whole steps with its own headroom, on every source. " + amp + ("amp".equals(cfg.lift) ? steps : ""));
+        }
+        if (guardNow != null) {
+            guardNow.setText((livePeak <= -9600 ? "No phone audio playing" : "Peak " + Ui.dB(livePeak))
+                    + "  •  " + (liveClips == 0 ? "no clipping in the last minute" : liveClips + " s clipped in the last minute")
+                    + (liveGuard > 0 ? "  •  backed off " + Ui.dB(-liveGuard) : ""));
+        }
+    }
+
+    static String signed(int v) {
+        return v > 0 ? "+" + v : String.valueOf(v);
     }
 
     // ---- small helpers
@@ -449,10 +656,29 @@ public class MainActivity extends Activity {
                 if (!cfg.on) title = "Off";
                 else if (playing) { title = "Tuning phone audio"; dot = Ui.ACCENT; }
                 else title = "Waiting for phone audio";
+                liveTone = st.optJSONArray("car_tone");
+                livePeak = st.optInt("peak_mB", -9600);
+                liveClips = st.optInt("clip_s", 0);
+                liveGuard = st.optInt("guard_mB", 0);
+                liveLoud = st.optJSONArray("loud_mB");
+                liveSteps = st.optJSONArray("amp_steps");
+                liveVolume = st.optInt("volume", -1);
+                liveAmpType = st.optInt("amp_type", -2);
+                liveAmpName = st.optString("amp_name");
+                liveVerified = st.optBoolean("amp_verified");
+                liveTesting = st.optBoolean("amp_testing");
+                liveTestProfile = st.optBoolean("amp_test_profile");
+                liveWrites = st.optInt("amp_writes");
+                if (st.optString("speed_comp_name").length() > 0) liveSpeedComp = st.optString("speed_comp_name");
+                if (reportAsked != 0 && st.optLong("report_for") == reportAsked) {
+                    saveNote.setText(st.optString("report"));
+                }
+                showLive();
                 String dsc = st.optString("dsc");
                 detail = (cfg.speedOn ? "Speed: volume " + Ui.dB(st.optDouble("speed_vol_mB", 0)) + ", bass " + Ui.dB(st.optDouble("speed_bass_mB", 0))
                         + ", treble " + Ui.dB(st.optDouble("speed_treble_mB", 0)) : "Speed tuning off")
-                        + ("off".equals(dsc) ? "  •  Bose DSC held off" : "on".equals(dsc) ? "  •  Bose DSC on" : "");
+                        + ("off".equals(dsc) ? "  •  Bose DSC held off" : "on".equals(dsc) ? "  •  Bose DSC on" : "")
+                        + (liveGuard > 0 ? "  •  clip guard " + Ui.dB(-liveGuard) : "");
             }
         } catch (Exception e) {
             title = "Engine not running";

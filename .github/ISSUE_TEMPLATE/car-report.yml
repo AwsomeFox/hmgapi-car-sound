@@ -1,0 +1,54 @@
+name: Car report
+description: Car Sound on your car, so its amplifier profile can be tuned for it
+title: "Car report: <year> <model> <audio system>"
+labels: ["car report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Make the report parked with phone audio playing: Car Sound > **Save car report**
+        (with a USB stick in), or `sh amp.sh report` over adb. It leaves out serial numbers, the
+        VIN, Bluetooth names, locations and song details, but read it before you post it.
+        See docs/AMPLIFIER.md for the sweep.
+  - type: input
+    id: car
+    attributes:
+      label: Car
+      description: Year, model, trim, region
+      placeholder: 2024 Hyundai Ioniq 5 Limited, USA
+    validations:
+      required: true
+  - type: dropdown
+    id: audio
+    attributes:
+      label: Audio system
+      options: [Standard (no brand), Bose, Harman Kardon, Krell, JBL, Lexicon, Meridian, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: phone
+    attributes:
+      label: Phone audio tested with
+      multiple: true
+      options: [Android Auto (wired), Android Auto (wireless), CarPlay (wired), CarPlay (wireless)]
+  - type: textarea
+    id: sweep
+    attributes:
+      label: What the amplifier sweep sounded like
+      description: |
+        From `sh amp.sh sweep bass` and `sweep treble`, if you ran them: how big a step sounded,
+        any clicks, dropouts or pop-ups, the step where it boomed or distorted, and at which
+        volume. "Not run" is fine.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: How Car Sound sounds on your car, what you changed, problems
+  - type: textarea
+    id: report
+    attributes:
+      label: Car report
+      description: Paste the whole file, or attach it
+      render: text
+    validations:
+      required: true

@@ -7,7 +7,9 @@ import org.json.JSONObject;
  * Car Sound's settings, shared by the app and the engine. HMG-API keeps them as two text
  * settings of the mod (settings.json): "on" ("1"/"0") and "config", this JSON:
  *   {"bands": [mB x5], "boost": 0-1000,
- *    "speed": {"on": bool, "vol": [mB x5], "bass": [mB x5], "treble": [mB x5]}, "dsc": "leave"|"off"|"on"}
+ *    "speed": {"on": bool, "vol": [mB x5], "bass": [mB x5], "treble": [mB x5]}, "dsc": "leave"|"off"|"on",
+ *    "tone": "leave"|"flat", "guard": bool, "lift": "android"|"amp",
+ *    "loud": {"on": bool, "bass": mB, "treble": mB, "full": volume step, "none": volume step}, "report": ms}
  * The speed lists are the extra volume, bass and treble at MPH's speeds (0 at a standstill, in
  * between linear, past the last speed as at it).
  * mB: millibels (100 = 1 dB). Bands: 60 Hz, 230 Hz, 910 Hz, 3.6 kHz, 14 kHz, Android's usual
@@ -27,9 +29,47 @@ public final class Config {
     public static final int[] MPH = { 20, 35, 50, 65, 80 };
     public static final int VOL = 0, BASS = 1, TREBLE = 2;
     public static final String[] CURVES = { "Volume", "Bass", "Treble" };
-    public int[][] speed = { { 0, 100, 200, 300, 400 }, { 0, 100, 200, 300, 400 }, { 0, 50, 100, 150, 200 } };
+    public int[][] speed = copy(SPEED_PRESETS[1]);
     public static final int SPEED_MAX = 1000;   // +10 dB at most
     public String dsc = "leave";
+    /** the car's own Bass, Mid and Treble (in the amplifier, after Car Sound): "leave" as set, or "flat" (centre) while Car Sound is on */
+    public String tone = "leave";
+    /** clip guard: back the speed volume off (or turn the audio down a little) while Car Sound's output reaches full scale */
+    public boolean guard = true;
+    /** where the speed curves' bass and treble and the loudness lift are made: "android" (the equalizer, phone audio) or "amp" (the car's Bass and Treble steps, every source) */
+    public String lift = "android";
+    /** loudness: bass and treble lifted at low volume, as ears lose them; all of it at volume loudFull or below, none from loudNone */
+    public boolean loudOn = false;
+    public int loudBass = 600, loudTreble = 200, loudFull = 6, loudNone = 20;
+    public static final int LOUD_MAX = 1000, VOLUME_STEPS = 45;
+    /** a car report asked for at this time (ms); the engine makes one for each new value */
+    public long report;
+
+    /**
+     * speed presets: volume, bass and treble (mB) at MPH's speeds. Cabin noise in an EV is mostly
+     * tyre and wind roar, rising about 8-10 dB from 30 to 70 mph and loudest below ~500 Hz, so the
+     * volume does most of the work and the bass follows; treble only a little (tyre hiss is
+     * higher, but a treble lift soon sounds harsh).
+     */
+    public static final String[] SPEED_PRESET_NAMES = { "Low", "Medium", "High", "Max" };
+    public static final int[][][] SPEED_PRESETS = {
+        { { 0, 100, 150, 250, 300 }, { 0, 50, 100, 150, 200 }, { 0, 0, 50, 50, 100 } },
+        { { 0, 150, 250, 400, 500 }, { 0, 100, 150, 250, 350 }, { 0, 50, 100, 150, 200 } },
+        { { 0, 200, 400, 550, 700 }, { 0, 150, 250, 400, 500 }, { 0, 50, 150, 200, 300 } },
+        { { 100, 300, 550, 800, 1000 }, { 50, 200, 400, 600, 800 }, { 0, 100, 200, 300, 400 } },
+    };
+
+    public static int[][] copy(int[][] a) {
+        int[][] out = new int[a.length][];
+        for (int i = 0; i < a.length; i++) out[i] = a[i].clone();
+        return out;
+    }
+
+    /** which of SPEED_PRESETS the speed curves are, or -1 (the owner's own) */
+    public int speedPreset() {
+        for (int i = 0; i < SPEED_PRESETS.length; i++) if (java.util.Arrays.deepEquals(SPEED_PRESETS[i], speed)) return i;
+        return -1;
+    }
 
     /**
      * presets: name, bands (60 Hz, 230 Hz, 910 Hz, 3.6 kHz, 14 kHz), bass boost. Tuned for the Ioniq 5's
@@ -79,6 +119,18 @@ public final class Config {
             }
             String d = o.optString("dsc", c.dsc);
             c.dsc = "off".equals(d) || "on".equals(d) ? d : "leave";
+            c.tone = "flat".equals(o.optString("tone")) ? "flat" : "leave";
+            c.guard = o.optBoolean("guard", c.guard);
+            c.lift = "amp".equals(o.optString("lift")) ? "amp" : "android";
+            JSONObject l = o.optJSONObject("loud");
+            if (l != null) {
+                c.loudOn = l.optBoolean("on", c.loudOn);
+                c.loudBass = clamp(l.optInt("bass", c.loudBass), 0, LOUD_MAX);
+                c.loudTreble = clamp(l.optInt("treble", c.loudTreble), 0, LOUD_MAX);
+                c.loudFull = clamp(l.optInt("full", c.loudFull), 0, VOLUME_STEPS);
+                c.loudNone = clamp(l.optInt("none", c.loudNone), 0, VOLUME_STEPS);
+            }
+            c.report = o.optLong("report", 0);
         } catch (Exception e) {
             // a broken config: the defaults
         }
@@ -103,6 +155,17 @@ public final class Config {
             }
             o.put("speed", s);
             o.put("dsc", dsc);
+            o.put("tone", tone);
+            o.put("guard", guard);
+            o.put("lift", lift);
+            JSONObject l = new JSONObject();
+            l.put("on", loudOn);
+            l.put("bass", loudBass);
+            l.put("treble", loudTreble);
+            l.put("full", loudFull);
+            l.put("none", loudNone);
+            o.put("loud", l);
+            if (report != 0) o.put("report", report);
             JSONObject saved = new JSONObject();
             saved.put("on", on ? "1" : "0");
             saved.put("config", o.toString());

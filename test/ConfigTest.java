@@ -58,6 +58,29 @@ public final class ConfigTest {
         check("the default equalizer is the Recommended preset",
                 java.util.Arrays.equals(new Config().bands, (int[]) Config.PRESETS[0][1]) && new Config().boost == (Integer) Config.PRESETS[0][2]);
 
+        check("four speed presets", Config.SPEED_PRESETS.length == 4 && Config.SPEED_PRESET_NAMES.length == 4);
+        for (int i = 0; i < Config.SPEED_PRESETS.length; i++) {
+            boolean ok = Config.SPEED_PRESETS[i].length == 3;
+            for (int[] curve : Config.SPEED_PRESETS[i]) {
+                ok &= curve.length == Config.MPH.length;
+                for (int j = 0; j < curve.length; j++) ok &= curve[j] >= 0 && curve[j] <= Config.SPEED_MAX && (j == 0 || curve[j] >= curve[j - 1]);
+            }
+            check("speed preset " + Config.SPEED_PRESET_NAMES[i] + ": 3 rising curves within 0..+10 dB", ok);
+        }
+        for (int i = 1; i < Config.SPEED_PRESETS.length; i++) {
+            check(Config.SPEED_PRESET_NAMES[i] + " is louder at 80 mph than " + Config.SPEED_PRESET_NAMES[i - 1],
+                    Config.SPEED_PRESETS[i][Config.VOL][4] > Config.SPEED_PRESETS[i - 1][Config.VOL][4]);
+        }
+        Config d = new Config();
+        check("the default speed curves are Medium", d.speedPreset() == 1);
+        d.speed[Config.BASS][2] += 50;
+        check("changed curves are the owner's own", d.speedPreset() == -1);
+        check("a preset is copied, not shared", Config.copy(Config.SPEED_PRESETS[0]) != Config.SPEED_PRESETS[0]
+                && java.util.Arrays.deepEquals(Config.copy(Config.SPEED_PRESETS[0]), Config.SPEED_PRESETS[0]));
+        check("loudness off, lifts by Android, car tone as set, clip guard on by default",
+                !d.loudOn && "android".equals(d.lift) && "leave".equals(d.tone) && d.guard);
+        check("loudness: all of it below the volume where none starts", d.loudFull < d.loudNone && d.loudNone <= Config.VOLUME_STEPS);
+
         System.out.println(failed == 0 ? "ConfigTest: all passed" : "ConfigTest: " + failed + " failed");
         System.exit(failed == 0 ? 0 : 1);
     }

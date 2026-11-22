@@ -86,13 +86,13 @@ final class Amp {
             // the equalizer's boosts as amplifier steps (Config.lift "amp"): how far each control reaches
             // into the equalizer's five bands (60, 230, 910, 3600, 14000 Hz), in percent of a step
             p.put("mid_step_mB", 100);
-            p.put("bass_shape", new JSONArray("[100,40,0,0,0]"));
+            p.put("bass_shape", new JSONArray("[100,55,10,0,0]"));
             p.put("mid_shape", new JSONArray("[0,30,100,30,0]"));
             p.put("treble_shape", new JSONArray("[0,0,0,60,100]"));
-            p.put("max_preset_steps", 8);    // the most steps the equalizer's own shape may take of each control
+            p.put("max_preset_steps", 6);    // the most steps the equalizer's own shape may take of each control
             // the speed volume as the car's own volume steps
             p.put("vol_step_mB", 100);       // how much louder one volume step is
-            p.put("max_vol_steps", 12);
+            p.put("max_vol_steps", 14);
             p.put("vol_cap", 38);            // never raise the volume past this step (of 45)
             p.put("vol_ui", 0);              // setVolume's UI option: 0 no pop-up (the knob sends 9)
             p.put("speed_comp", type == 3 ? 47 : 43);   // BOSE_DSCMODE, else SDVC
@@ -335,7 +335,8 @@ final class Amp {
         volume = own >= 0 ? own : readVolume(carPlay);
 
         // the loudness lift, gliding 2 dB a second as the volume changes
-        double share = cfg.on && cfg.loudOn ? loudShare(cfg, volume) : 0;
+        // by the volume as it is now, speed steps included: at speed the lift fades as the volume rises
+        double share = cfg.on && cfg.loudOn ? loudShare(cfg, volume < 0 ? -1 : volume + volSteps) : 0;
         loudB += Math.max(-200, Math.min(200, cfg.loudBass * share - loudB));
         loudT += Math.max(-200, Math.min(200, cfg.loudTreble * share - loudT));
         double wantB = speedB + loudB, wantT = speedT + loudT;

@@ -22,7 +22,7 @@ public final class Config {
     public static final String STATUS = "/data/local/tmp/car-sound/status.json";
 
     public boolean on = true;
-    public int[] bands = { 700, -200, 0, 150, 200 };
+    public int[] bands = { 500, -400, -100, 200, 300 };
     public int boost = 400;
     public boolean speedOn = true;
     /** speed tuning: at each of these speeds (mph), how much louder (VOL), more bass (BASS) and more treble (TREBLE), in mB */
@@ -47,7 +47,17 @@ public final class Config {
     public String scope = "all";
     /** loudness: bass and treble lifted at low volume, as ears lose them; all of it at volume loudFull or below, none from loudNone */
     public boolean loudOn = false;
-    public int loudBass = 600, loudTreble = 200, loudFull = 6, loudNone = 20;
+    public int loudBass = 500, loudTreble = 150, loudFull = 5, loudNone = 20;
+    /** loudness strengths: the most bass and treble lift (mB), at volume loudFull and below */
+    public static final String[] LOUD_NAMES = { "Low", "Medium", "High" };
+    public static final int[][] LOUD_PRESETS = { { 300, 100 }, { 500, 150 }, { 700, 250 } };
+
+    /** which of LOUD_PRESETS the loudness lift is, or -1 (off, or the owner's own amounts) */
+    public int loudPreset() {
+        if (!loudOn) return -1;
+        for (int i = 0; i < LOUD_PRESETS.length; i++) if (LOUD_PRESETS[i][0] == loudBass && LOUD_PRESETS[i][1] == loudTreble) return i;
+        return -1;
+    }
     public static final int LOUD_MAX = 1000, VOLUME_STEPS = 45;
     /** a car report asked for at this time (ms); the engine makes one for each new value */
     public long report;
@@ -55,15 +65,16 @@ public final class Config {
     /**
      * speed presets: volume, bass and treble (mB) at MPH's speeds. Cabin noise in an EV is mostly
      * tyre and wind roar, rising about 8-10 dB from 30 to 70 mph and loudest below ~500 Hz, so the
-     * volume does most of the work and the bass follows; treble only a little (tyre hiss is
-     * higher, but a treble lift soon sounds harsh).
+     * volume does most of the work, rising faster the faster you go, and the bass follows at
+     * about a third to a half of it; treble only a little (tyre hiss is higher, but a treble lift
+     * soon sounds harsh). With the car's amplifier these are real dB: +9.5 dB at 80 mph on High.
      */
     public static final String[] SPEED_PRESET_NAMES = { "Low", "Medium", "High", "Max" };
     public static final int[][][] SPEED_PRESETS = {
-        { { 0, 100, 150, 250, 300 }, { 0, 50, 100, 150, 200 }, { 0, 0, 50, 50, 100 } },
-        { { 0, 150, 250, 400, 500 }, { 0, 100, 150, 250, 350 }, { 0, 50, 100, 150, 200 } },
-        { { 0, 200, 400, 550, 700 }, { 0, 150, 250, 400, 500 }, { 0, 50, 150, 200, 300 } },
-        { { 100, 350, 650, 950, 1200 }, { 50, 200, 400, 600, 800 }, { 0, 100, 200, 300, 400 } },
+        { { 0, 100, 200, 300, 400 }, { 0, 0, 100, 100, 200 }, { 0, 0, 0, 50, 100 } },
+        { { 0, 150, 300, 450, 600 }, { 0, 100, 150, 250, 300 }, { 0, 0, 50, 100, 150 } },
+        { { 100, 250, 450, 700, 950 }, { 0, 100, 200, 300, 400 }, { 0, 50, 100, 150, 200 } },
+        { { 150, 350, 650, 1000, 1350 }, { 0, 150, 250, 400, 500 }, { 0, 50, 100, 200, 300 } },
     };
 
     public static int[][] copy(int[][] a) {
@@ -82,7 +93,11 @@ public final class Config {
      * presets: name, bands (60 Hz, 230 Hz, 910 Hz, 3.6 kHz, 14 kHz), bass boost. Tuned for the Ioniq 5's
      * 8-speaker Bose system (with subwoofer), whose flat setting owners find heavy in the mid-bass
      * (about 100-250 Hz) and light in the deep bass, so most cut 230 Hz while lifting 60 Hz.
-     *   Recommended  deep bass up, mid-bass mud down, a little presence and air
+     * Boosts stay at +7 dB or less: with the car's amplifier making them (lift "amp") that leaves
+     * its Bass and Treble room for the speed and loudness lifts, and Android alone turns its output
+     * down by the largest one. The low-mid cut (230 Hz) is deep because the amplifier's Bass reaches
+     * up into it.
+     *   Recommended  deep bass up, low-mid mud well down, a little presence and air
      *   Deep bass    more of the same, for bass-heavy music; may limit at high volume
      *   Harman car   the shape of Harman's in-car target: a 6-8 dB bass shelf under ~80 Hz and a
      *                gentle fall above ~2.5 kHz
@@ -93,13 +108,13 @@ public final class Config {
      *   Flat         Android's equalizer and bass boost out of the way
      */
     public static final Object[][] PRESETS = {
-        { "Recommended", new int[] { 700, -200, 0, 150, 200 }, 400 },
-        { "Deep bass", new int[] { 1000, -100, 0, 150, 200 }, 650 },
-        { "Harman car", new int[] { 750, 150, 0, -100, -200 }, 250 },
-        { "Highway", new int[] { 900, 0, 100, 250, 300 }, 450 },
-        { "Clear", new int[] { -200, -300, 100, 300, 400 }, 0 },
-        { "Low volume", new int[] { 800, 0, 0, 200, 400 }, 300 },
-        { "Voices", new int[] { -100, -300, 300, 400, 0 }, 0 },
+        { "Recommended", new int[] { 500, -400, -100, 200, 300 }, 400 },
+        { "Deep bass", new int[] { 700, -400, -100, 150, 250 }, 600 },
+        { "Harman car", new int[] { 600, 0, 0, -100, -200 }, 250 },
+        { "Highway", new int[] { 600, -300, 0, 300, 350 }, 450 },
+        { "Clear", new int[] { -200, -500, 0, 300, 400 }, 0 },
+        { "Low volume", new int[] { 600, -200, 0, 200, 400 }, 300 },
+        { "Voices", new int[] { -300, -500, 200, 350, 0 }, 0 },
         { "Flat", new int[] { 0, 0, 0, 0, 0 }, 0 },
     };
 

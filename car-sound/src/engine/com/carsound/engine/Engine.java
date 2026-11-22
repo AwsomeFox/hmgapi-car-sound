@@ -429,6 +429,7 @@ public final class Engine {
         if (wantMix && mix == null) {
             try {
                 mix = new Fx(0);
+                mixThread = "";   // known from the next dump: until then no session gets effects of its own
                 mixIdle = 0;
                 fxError = null;
                 log("Android's output mix: " + describe(mix) + ", for everything Android plays");
@@ -457,7 +458,7 @@ public final class Engine {
         long now = System.currentTimeMillis();
         for (Map.Entry<Integer, String> p : phone.entrySet()) {
             int sid = p.getKey();
-            if (mix != null && p.getValue().equals(mixThread)) continue;   // the mix's effects have it (and one here would suspend them)
+            if (mix != null && (mixThread.length() == 0 || p.getValue().equals(mixThread))) continue;   // the mix's effects have it (and one here would suspend them)
             Fx f = fx.get(sid);
             if (f == null) {
                 try {

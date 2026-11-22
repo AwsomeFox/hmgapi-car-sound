@@ -1,7 +1,7 @@
 {
   "id": "car-sound",
   "name": "Car Sound",
-  "version": "0.6.0",
+  "version": "0.6.2",
   "hmgapi": ">=1.1.0",
   "authors": [
     "AwsomeFox"

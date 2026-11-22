@@ -8,7 +8,7 @@ import org.json.JSONObject;
  * settings of the mod (settings.json): "on" ("1"/"0") and "config", this JSON:
  *   {"bands": [mB x5], "boost": 0-1000,
  *    "speed": {"on": bool, "vol": [mB x5], "bass": [mB x5], "treble": [mB x5]}, "dsc": "leave"|"off"|"on",
- *    "tone": "leave"|"flat", "guard": bool, "lift": "android"|"amp",
+ *    "tone": "leave"|"flat", "guard": bool, "lift": "android"|"amp", "scope": "all"|"phone",
  *    "loud": {"on": bool, "bass": mB, "treble": mB, "full": volume step, "none": volume step}, "report": ms}
  * The speed lists are the extra volume, bass and treble at MPH's speeds (0 at a standstill, in
  * between linear, past the last speed as at it).
@@ -30,14 +30,21 @@ public final class Config {
     public static final int VOL = 0, BASS = 1, TREBLE = 2;
     public static final String[] CURVES = { "Volume", "Bass", "Treble" };
     public int[][] speed = copy(SPEED_PRESETS[1]);
-    public static final int SPEED_MAX = 1000;   // +10 dB at most
+    public static final int SPEED_MAX = 1500;   // +15 dB at most
     public String dsc = "leave";
     /** the car's own Bass, Mid and Treble (in the amplifier, after Car Sound): "leave" as set, or "flat" (centre) while Car Sound is on */
     public String tone = "leave";
     /** clip guard: back the speed volume off (or turn the audio down a little) while Car Sound's output reaches full scale */
     public boolean guard = true;
-    /** where the speed curves' bass and treble and the loudness lift are made: "android" (the equalizer, phone audio) or "amp" (the car's Bass and Treble steps, every source) */
+    /**
+     * who makes the boosts: "android" (Android's equalizer and loudness enhancer alone: every boost
+     * there turns the rest down) or "amp" (the car's amplifier: the equalizer's boosts and the speed
+     * and loudness lifts as the car's own Bass/Mid/Treble steps, the speed volume as the car's own
+     * volume steps, on every source, with Android's equalizer left to cut)
+     */
     public String lift = "android";
+    /** what Android's effects are on: "all" (the output mix: everything Android plays, from the start) or "phone" (Android Auto's and CarPlay's own audio sessions, once they play) */
+    public String scope = "all";
     /** loudness: bass and treble lifted at low volume, as ears lose them; all of it at volume loudFull or below, none from loudNone */
     public boolean loudOn = false;
     public int loudBass = 600, loudTreble = 200, loudFull = 6, loudNone = 20;
@@ -56,7 +63,7 @@ public final class Config {
         { { 0, 100, 150, 250, 300 }, { 0, 50, 100, 150, 200 }, { 0, 0, 50, 50, 100 } },
         { { 0, 150, 250, 400, 500 }, { 0, 100, 150, 250, 350 }, { 0, 50, 100, 150, 200 } },
         { { 0, 200, 400, 550, 700 }, { 0, 150, 250, 400, 500 }, { 0, 50, 150, 200, 300 } },
-        { { 100, 300, 550, 800, 1000 }, { 50, 200, 400, 600, 800 }, { 0, 100, 200, 300, 400 } },
+        { { 100, 350, 650, 950, 1200 }, { 50, 200, 400, 600, 800 }, { 0, 100, 200, 300, 400 } },
     };
 
     public static int[][] copy(int[][] a) {
@@ -122,6 +129,7 @@ public final class Config {
             c.tone = "flat".equals(o.optString("tone")) ? "flat" : "leave";
             c.guard = o.optBoolean("guard", c.guard);
             c.lift = "amp".equals(o.optString("lift")) ? "amp" : "android";
+            c.scope = "phone".equals(o.optString("scope")) ? "phone" : "all";
             JSONObject l = o.optJSONObject("loud");
             if (l != null) {
                 c.loudOn = l.optBoolean("on", c.loudOn);
@@ -158,6 +166,7 @@ public final class Config {
             o.put("tone", tone);
             o.put("guard", guard);
             o.put("lift", lift);
+            o.put("scope", scope);
             JSONObject l = new JSONObject();
             l.put("on", loudOn);
             l.put("bass", loudBass);

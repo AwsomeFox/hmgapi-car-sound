@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.0
+
+From a first full drive with 0.5.0: the volume barely rose with speed, the equalizer and the bass
+lifts fought each other, and the level dropped when the equalizer came in after the music started.
+The cause is Android 4.4's equalizer, which turns its whole output down by its largest boost.
+
+- **All Android audio, from the start:** the effects are on Android's output mix now, attached
+  when the engine starts, so nothing changes when music begins, and everything Android plays is
+  tuned. "Phone audio only" (Loudness page) keeps the old way. If Android holds the mix's effects
+  off (another app's effect on an audio session, or one whose app was killed), Car Sound tunes
+  phone audio per session until the head unit restarts, and says so.
+- **"The car's amplifier too"** (Loudness page) now makes every boost with the amplifier: the
+  equalizer's shape is split into the car's own Bass/Mid/Treble steps plus cuts in Android's
+  equalizer (which never turn the music down), the speed and loudness lifts are steps on top,
+  and the **speed volume is the car's own volume**, like the knob, on every source. Your knob
+  setting stays the base: move it and Car Sound follows.
+- Speed volume up to +15 dB; the Max preset reaches +12 dB.
+- The engine stops through its stop file instead of being killed, and releases effects an
+  earlier engine left on an audio session.
+- After updating from 0.5.0, restart the head unit once: the old engine is killed by the
+  update, which leaves Android's output mix effects suspended until then.
+
 ## 0.5.0
 
 - **Clip guard:** a meter at the end of Car Sound's chain watches the peak it sends on; while it

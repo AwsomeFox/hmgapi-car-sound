@@ -34,9 +34,9 @@ import java.util.Arrays;
 public class MainActivity extends Activity {
     static final String[] PAGES = { "Equalizer", "Speed", "Loudness", "Car" };
     static final String[] PAGE_NOTES = {
-        "Android Auto and CarPlay audio. Drag a point; the radio and Bluetooth audio aren't changed.",
+        "Drag a point. With the car's amplifier (Loudness page), boosts reach every source and don't turn the rest down.",
         "Louder, more bass and more treble as you go faster, where road noise covers them.",
-        "More bass and treble when the volume is low, as ears lose them, and where Car Sound's lifts are made.",
+        "More bass and treble when the volume is low, and who makes Car Sound's boosts: Android alone, or the car's amplifier too.",
         "The car's own sound settings, and Car Sound's clip guard.",
     };
 
@@ -371,7 +371,7 @@ public class MainActivity extends Activity {
             }
         };
         top.addView(curve, Ui.lp(-1, -2, 0, 6));
-        top.addView(Ui.text(this, "Pick a level, or drag a point: how much louder, or how much more bass or treble, at that speed. Changes follow your speed gently, about 1 dB a second. Phone audio only, like the equalizer.", 12, Ui.TEXT_3, false));
+        top.addView(Ui.text(this, "Pick a level, or drag a point: how much louder, or how much more bass or treble, at that speed. Changes follow your speed gently, about 1 dB a second. With the car's amplifier, the volume is the car's own, on every source.", 12, Ui.TEXT_3, false));
         pageHolder.addView(top, Ui.lp(-1, -2, 0, 8));
         speedChips();
     }
@@ -426,16 +426,24 @@ public class MainActivity extends Activity {
         pageHolder.addView(c);
 
         LinearLayout a = Ui.card(this);
-        a.addView(Ui.text(this, "Where the speed and loudness lifts are made", 17, Ui.TEXT, true));
-        a.addView(Ui.segmented(this, new String[] { "Android (phone audio)", "Car's amplifier (every source)" }, "amp".equals(cfg.lift) ? 1 : 0, new Ui.OnValue() {
+        a.addView(Ui.text(this, "Boosts and speed volume are made by", 17, Ui.TEXT, true));
+        a.addView(Ui.segmented(this, new String[] { "Android alone", "The car's amplifier too" }, "amp".equals(cfg.lift) ? 1 : 0, new Ui.OnValue() {
             @Override
             public void value(int v, boolean done) {
                 cfg.lift = v == 1 ? "amp" : "android";
                 save();
             }
-        }), Ui.lp(-1, -2, 0, 8));
-        ampNow = Ui.text(this, "", 13, Ui.TEXT_2, false);
-        a.addView(ampNow, Ui.lp(-1, -2, 0, 6));
+        }), Ui.lp(-1, -2, 0, 6));
+        ampNow = Ui.text(this, "", 12, Ui.TEXT_2, false);
+        ampNow.setMaxLines(3);
+        a.addView(ampNow, Ui.lp(-1, -2, 0, 4));
+        a.addView(Ui.segmented(this, new String[] { "All Android audio", "Phone audio only" }, "phone".equals(cfg.scope) ? 1 : 0, new Ui.OnValue() {
+            @Override
+            public void value(int v, boolean done) {
+                cfg.scope = v == 1 ? "phone" : "all";
+                save();
+            }
+        }), Ui.lp(-1, -2, 0, 6));
         pageHolder.addView(a, Ui.lp(-1, -2, 0, 8));
         showLive();
     }
@@ -475,7 +483,8 @@ public class MainActivity extends Activity {
                 save();
             }
         }), Ui.lp(-1, -2, 0, 8));
-        t.addView(Ui.text(this, "The amplifier applies them after Car Sound, on every source. Flat leaves the tone to Car Sound; turned off, Car Sound puts yours back.", 13, Ui.TEXT_2, false), Ui.lp(-1, -2, 0, 6));
+        t.addView(Ui.text(this, "amp".equals(cfg.lift) ? "Car Sound sets them itself while it makes the boosts with the amplifier (Loudness page); turned off, it puts yours back."
+                : "The amplifier applies them after Car Sound, on every source. Flat leaves the tone to Car Sound; turned off, Car Sound puts yours back.", 13, Ui.TEXT_2, false), Ui.lp(-1, -2, 0, 6));
         pageHolder.addView(t, Ui.lp(-1, -2, 0, 8));
 
         LinearLayout g = Ui.card(this);
@@ -505,7 +514,8 @@ public class MainActivity extends Activity {
 
     // the Car page's live lines, from the engine's status
     JSONArray liveTone, liveLoud, liveSteps;
-    int livePeak = -9600, liveClips, liveGuard, liveVolume = -1, liveAmpType = -2, liveWrites;
+    int livePeak = -9600, liveClips, liveGuard, liveVolume = -1, liveAmpType = -2, liveWrites, liveVolSteps;
+    boolean liveSuspended;
     String liveAmpName = "", liveSpeedComp = "The car's speed compensation";
     boolean liveVerified, liveTesting, liveTestProfile;
 
@@ -522,9 +532,10 @@ public class MainActivity extends Activity {
             String amp = liveAmpType < 0 ? "The amplifier type isn't known yet." : "This car: " + liveAmpName + " (type " + liveAmpType + ")"
                     + (liveVerified ? "." : ", not tested with Car Sound yet: try it parked, then send a car report.")
                     + (liveTestProfile ? " Test profile in use." : "");
-            String steps = liveSteps == null ? "" : "  Now: bass +" + liveSteps.optInt(0) + ", treble +" + liveSteps.optInt(2) + " steps"
-                    + (liveTesting ? " (test)" : "") + ", " + liveWrites + " amplifier writes this drive.";
-            ampNow.setText("Android: phone audio only, smooth, but each boost turns the rest down. Amplifier: whole steps with its own headroom, on every source. " + amp + ("amp".equals(cfg.lift) ? steps : ""));
+            String steps = liveSteps == null ? "" : "  Now: bass +" + liveSteps.optInt(0) + ", mid +" + liveSteps.optInt(1) + ", treble +" + liveSteps.optInt(2)
+                    + ", volume +" + liveVolSteps + " steps" + (liveTesting ? " (test)" : "") + ".";
+            ampNow.setText("Android alone: every boost turns the rest of the music down. With the amplifier: the car's own Bass, Mid, Treble and volume make the boosts, on every source, and Android only cuts. "
+                    + amp + ("amp".equals(cfg.lift) ? steps : "") + (liveSuspended ? "  Android audio: per app until the head unit restarts." : ""));
         }
         if (guardNow != null) {
             guardNow.setText((livePeak <= -9600 ? "No phone audio playing" : "Peak " + Ui.dB(livePeak))
@@ -660,12 +671,13 @@ public class MainActivity extends Activity {
                 simulated = st.optBoolean("sim");
                 setBose(st.optBoolean("speed_comp_ok"));
                 JSONArray ss = st.optJSONArray("sessions");
-                boolean playing = ss != null && ss.length() > 0;
+                boolean playing = st.optBoolean("playing", ss != null && ss.length() > 0);
+                boolean all = "all".equals(st.optString("scope_now"));
                 String fxError = st.optString("fx_error", "");
                 if (!cfg.on) title = "Off";
-                else if (playing) { title = "Tuning phone audio"; dot = Ui.ACCENT; }
+                else if (playing) { title = all ? "Tuning the car's audio" : "Tuning phone audio"; dot = Ui.ACCENT; }
                 else if (fxError.length() > 0) { title = "Can't tune this car's audio"; dot = Ui.WARN; }
-                else title = "Waiting for phone audio";
+                else title = all ? "Ready" : "Waiting for phone audio";
                 liveTone = st.optJSONArray("car_tone");
                 livePeak = st.optInt("peak_mB", -9600);
                 liveClips = st.optInt("clip_s", 0);
@@ -679,6 +691,8 @@ public class MainActivity extends Activity {
                 liveTesting = st.optBoolean("amp_testing");
                 liveTestProfile = st.optBoolean("amp_test_profile");
                 liveWrites = st.optInt("amp_writes");
+                liveVolSteps = st.optInt("vol_steps");
+                liveSuspended = "suspended".equals(st.optString("scope_why"));
                 if (st.optString("speed_comp_name").length() > 0) liveSpeedComp = st.optString("speed_comp_name");
                 if (reportAsked != 0 && st.optLong("report_for") == reportAsked) {
                     saveNote.setText(st.optString("report"));
@@ -690,6 +704,7 @@ public class MainActivity extends Activity {
                         : "Speed: volume " + Ui.dB(st.optDouble("speed_vol_mB", 0)) + ", bass " + Ui.dB(st.optDouble("speed_bass_mB", 0))
                         + ", treble " + Ui.dB(st.optDouble("speed_treble_mB", 0)))
                         + (!bose ? "" : "off".equals(dsc) ? "  •  speed compensation held off" : "on".equals(dsc) ? "  •  speed compensation on" : "")
+                        + (liveVolSteps > 0 ? "  •  car volume +" + liveVolSteps : "")
                         + (liveGuard > 0 ? "  •  clip guard " + Ui.dB(-liveGuard) : "");
                 if (cfg.on && !playing && fxError.length() > 0) detail = "Android's audio effects: " + fxError;
             }

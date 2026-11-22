@@ -30,6 +30,8 @@ measured yet**: they're marked `"verified": false` until a car test or car repor
 | `min_interval_s`, `hysteresis` | how often the amplifier may be raised; how far past a step a lift must go | a drive: lifts shouldn't flicker |
 | `method`, `type_offset` | how the amplifier is written: `bmt` (setBassMidTreb, like the car's Sound page) or `sound` (setSound per setting, plus `type_offset`) | see "Saved or not" below |
 | `android_rest` | also make the part between two steps with Android's equalizer | listening |
+| `mid_step_mB`, `bass_shape`, `mid_shape`, `treble_shape`, `max_preset_steps` | how the equalizer's own shape is split: how far each control reaches into the five bands (percent of a step at 60, 230, 910, 3600, 14000 Hz), and the most steps the shape may take | compare a preset with the amplifier on and off at the same volume: it should sound the same, only louder in the bass |
+| `vol_step_mB`, `max_vol_steps`, `vol_cap`, `vol_ui` | the speed volume as the car's volume: dB per step, the most steps, the highest volume it may reach, and setVolume's UI option (0: no pop-up) | `sh sim.sh 65` parked: how much louder the steps are |
 | `vol_group_aa`, `vol_group_cp` | the volume groups of Android Auto and CarPlay music | the car report's volume groups |
 | `speed_comp`, `speed_comp_on`, `speed_comp_name` | the car's own speed compensation setting (47 Bose DSC, 43 Speed Dependent Volume) and its "on" value | the car report's sound settings and their availability |
 

@@ -15,7 +15,15 @@ r "/system/bin/hmgapid engine apply" | grep -i -E "car-sound|refus|error|nothing
 adb wait-for-device
 until adb shell "/system/bin/hmgapid ping" 2>/dev/null | grep -q ok; do sleep 2; done   # apply restarts adbd
 r "/system/bin/hmgapid engine apps" | tail -1
-adb shell "/system/bin/hmgapid service-restart car-sound engine" | tr -d '\r'
-sleep 8
+# the running engine stops itself (its stop file) and HMG-API starts the new one: a killed engine
+# would leave Android's output mix effects suspended until the head unit restarts
+was=$(adb shell "/system/bin/hmgapid service-log car-sound engine" | tr -d '\r' | grep -c "engine started" || true)
+r "touch /data/local/tmp/car-sound/stop"
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    sleep 2
+    [ "$(adb shell "/system/bin/hmgapid service-log car-sound engine" | tr -d '\r' | grep -c "engine started" || true)" -gt "$was" ] && break
+    [ "$i" = 15 ] && adb shell "/system/bin/hmgapid service-restart car-sound engine" | tr -d '\r'
+done
+sleep 6
 adb shell "/system/bin/hmgapid service-log car-sound engine" | tr -d '\r' | grep -v "settings:" | python3 -c 'import sys; l=sys.stdin.readlines(); sys.stdout.writelines(l[-6:])'
 r "cat /data/local/tmp/car-sound/status.json"; echo

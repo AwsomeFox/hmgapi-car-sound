@@ -363,7 +363,7 @@ final class Ui {
 
         @Override
         protected void onMeasure(int w, int h) {
-            setMeasuredDimension(MeasureSpec.getSize(w), px(206));
+            setMeasuredDimension(MeasureSpec.getSize(w), px(184));   // the page has about 340 dp under the car's status bar
         }
 
         float l() { return px(60); }

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.2
+## 0.6.3
 
 From a first full drive with 0.5.0: the volume barely rose with speed, the equalizer and the bass
 lifts fought each other, and the level dropped when the equalizer came in after the music started.

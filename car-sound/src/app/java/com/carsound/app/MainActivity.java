@@ -372,7 +372,9 @@ public class MainActivity extends Activity {
             }
         };
         top.addView(curve, Ui.lp(-1, -2, 0, 6));
-        top.addView(Ui.text(this, "Pick a level, or drag a point: how much louder, or how much more bass or treble, at that speed. Changes follow your speed gently, about 1 dB a second. With the car's amplifier, the volume is the car's own, on every source.", 12, Ui.TEXT_3, false));
+        TextView hint = Ui.text(this, "Pick a level, or drag a point to set the lift at that speed. Changes follow your speed gently, about 1 dB a second.", 12, Ui.TEXT_3, false);
+        hint.setMaxLines(1);
+        top.addView(hint);
         pageHolder.addView(top, Ui.lp(-1, -2, 0, 8));
         speedChips();
     }
@@ -440,7 +442,7 @@ public class MainActivity extends Activity {
             }
         }), Ui.lp(-1, -2, 0, 6));
         ampNow = Ui.text(this, "", 12, Ui.TEXT_2, false);
-        ampNow.setMaxLines(3);
+        ampNow.setMaxLines(2);
         a.addView(ampNow, Ui.lp(-1, -2, 0, 4));
         toneChoice = Ui.segmented(this, new String[] { "Car's Bass/Mid/Treble as set", "Held flat with Car Sound" }, "flat".equals(cfg.tone) ? 1 : 0, new Ui.OnValue() {
             @Override
@@ -453,30 +455,33 @@ public class MainActivity extends Activity {
         a.addView(toneChoice, Ui.lp(-1, -2, 0, 6));
         pageHolder.addView(a);
 
-        // the car's own speed compensation
+        // side by side under it (the page is short): the car's own speed compensation, and Android's audio
+        LinearLayout two = new LinearLayout(this);
+        two.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout c = Ui.card(this);
         dscCard = c;
         c.setVisibility(bose ? View.VISIBLE : View.GONE);
-        LinearLayout cr = new LinearLayout(this);
-        cr.setGravity(Gravity.CENTER_VERTICAL);
         dscTitle = Ui.text(this, liveSpeedComp, 17, Ui.TEXT, true);
-        cr.addView(dscTitle, new LinearLayout.LayoutParams(0, -2, 1));
-        cr.addView(Ui.text(this, "Use one: off with Car Sound's speed tuning on", 12, Ui.TEXT_3, false));
-        c.addView(cr);
+        c.addView(dscTitle);
         int sel = "off".equals(cfg.dsc) ? 1 : "on".equals(cfg.dsc) ? 2 : 0;
-        c.addView(Ui.segmented(this, new String[] { "As set in the car", "Off with Car Sound", "On" }, sel, new Ui.OnValue() {
+        c.addView(Ui.segmented(this, new String[] { "Car's setting", "Off", "On" }, sel, new Ui.OnValue() {
             @Override
             public void value(int v, boolean done) {
                 cfg.dsc = v == 1 ? "off" : v == 2 ? "on" : "leave";
                 save();
             }
         }), Ui.lp(-1, -2, 0, 6));
-        pageHolder.addView(c, Ui.lp(-1, -2, 0, 8));
+        TextView dh = Ui.text(this, "Off (while Car Sound runs) is best with its speed tuning on: use one, not both.", 12, Ui.TEXT_3, false);
+        dh.setMaxLines(2);
+        c.addView(dh, Ui.lp(-1, -2, 0, 6));
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, -1, 1);
+        cp.rightMargin = Ui.px(12);
+        two.addView(c, cp);
 
         // Android's audio: what's tuned, and the clip guard
         LinearLayout g = Ui.card(this);
         g.addView(Ui.text(this, "Android's equalizer is on", 17, Ui.TEXT, true));
-        g.addView(Ui.segmented(this, new String[] { "All Android audio, from the start", "Phone audio only" }, "phone".equals(cfg.scope) ? 1 : 0, new Ui.OnValue() {
+        g.addView(Ui.segmented(this, new String[] { "All Android audio", "Phone audio only" }, "phone".equals(cfg.scope) ? 1 : 0, new Ui.OnValue() {
             @Override
             public void value(int v, boolean done) {
                 cfg.scope = v == 1 ? "phone" : "all";
@@ -502,7 +507,8 @@ public class MainActivity extends Activity {
         };
         gr.addView(gt);
         g.addView(gr, Ui.lp(-1, -2, 0, 6));
-        pageHolder.addView(g, Ui.lp(-1, -2, 0, 8));
+        two.addView(g, new LinearLayout.LayoutParams(0, -1, 1));
+        pageHolder.addView(two, Ui.lp(-1, -2, 0, 8));
         showLive();
     }
 
@@ -525,14 +531,13 @@ public class MainActivity extends Activity {
                     : "At your volume now (" + (liveVolume + liveVolSteps) + "): bass " + Ui.dB(lb) + ", treble " + Ui.dB(lt) + (lb == 0 && lt == 0 ? " (above where the lift ends)" : ""));
         }
         if (ampNow != null) {
-            String car = liveAmpType < 0 ? "" : " This car: " + liveAmpName + (liveVerified ? "." : ", still being tuned: tell us how it sounds with a car report.") + (liveTestProfile ? " Test profile in use." : "");
             ampNow.setText(("amp".equals(cfg.lift)
-                    ? "The car's own Bass, Mid, Treble and volume make the boosts, on every source, and Android's equalizer only cuts. Car Sound sets the car's tone while it's on and puts yours back when it's off."
-                    : "Android's equalizer and loudness enhancer make everything, on Android's audio only. Each boost there turns the rest of the music down.")
-                    + car + (liveSuspended ? " Android audio is tuned per app until the head unit restarts." : ""));
+                    ? "The car's own Bass, Mid, Treble and volume make the boosts, on every source. Your own settings return when Car Sound is off."
+                    : "Android makes everything, on Android's audio only. Each boost there turns the rest of the music down.")
+                    + (liveTestProfile ? " Test profile in use." : "") + (liveSuspended ? " Android audio is tuned per app until the head unit restarts." : ""));
         }
         if (guardNow != null) {
-            guardNow.setText("Backs the level off if Android's output clips.  " + (livePeak <= -9600 ? "Nothing playing" : "Peak " + Ui.dB(livePeak))
+            guardNow.setText((livePeak <= -9600 ? "Nothing playing" : "Peak " + Ui.dB(livePeak))
                     + "  •  " + (liveClips == 0 ? "no clipping in the last minute" : liveClips + " s clipped in the last minute")
                     + (liveGuard > 0 ? "  •  backed off " + Ui.dB(-liveGuard) : ""));
         }

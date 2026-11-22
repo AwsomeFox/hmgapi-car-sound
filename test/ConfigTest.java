@@ -52,8 +52,8 @@ public final class ConfigTest {
             int[] bands = (int[]) p[1];
             int boost = (Integer) p[2];
             boolean ok = bands.length == Config.FREQ.length && boost >= 0 && boost <= 1000;
-            for (int b : bands) ok &= b >= -1200 && b <= 1200;   // the screen shows and sets ±12 dB
-            check("preset " + p[0] + ": 5 bands within ±12 dB, bass boost 0-1000", ok);
+            for (int b : bands) ok &= b >= -1200 && b <= 700;   // boosts of +7 dB at most: room for the lifts
+            check("preset " + p[0] + ": 5 bands, -12 to +7 dB, bass boost 0-1000", ok);
         }
         check("the default equalizer is the Recommended preset",
                 java.util.Arrays.equals(new Config().bands, (int[]) Config.PRESETS[0][1]) && new Config().boost == (Integer) Config.PRESETS[0][2]);
@@ -77,8 +77,13 @@ public final class ConfigTest {
         check("changed curves are the owner's own", d.speedPreset() == -1);
         check("a preset is copied, not shared", Config.copy(Config.SPEED_PRESETS[0]) != Config.SPEED_PRESETS[0]
                 && java.util.Arrays.deepEquals(Config.copy(Config.SPEED_PRESETS[0]), Config.SPEED_PRESETS[0]));
-        check("loudness off, lifts by Android, car tone as set, clip guard on by default",
-                !d.loudOn && "android".equals(d.lift) && "leave".equals(d.tone) && d.guard);
+        check("loudness off, the amplifier where it's verified, car tone as set, clip guard on by default",
+                !d.loudOn && "auto".equals(d.lift) && "leave".equals(d.tone) && d.guard);
+        check("loudness presets rise", Config.LOUD_PRESETS.length == Config.LOUD_NAMES.length && Config.LOUD_PRESETS[2][0] > Config.LOUD_PRESETS[0][0]);
+        d.loudOn = true;
+        check("the default loudness amounts are Medium", d.loudPreset() == 1);
+        d.loudOn = false;
+        check("loudness off is no preset", d.loudPreset() == -1);
         check("loudness: all of it below the volume where none starts", d.loudFull < d.loudNone && d.loudNone <= Config.VOLUME_STEPS);
 
         System.out.println(failed == 0 ? "ConfigTest: all passed" : "ConfigTest: " + failed + " failed");

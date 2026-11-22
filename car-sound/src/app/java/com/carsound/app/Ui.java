@@ -363,7 +363,7 @@ final class Ui {
 
         @Override
         protected void onMeasure(int w, int h) {
-            setMeasuredDimension(MeasureSpec.getSize(w), px(206));
+            setMeasuredDimension(MeasureSpec.getSize(w), px(184));   // the page has about 340 dp under the car's status bar
         }
 
         float l() { return px(60); }
@@ -386,7 +386,7 @@ final class Ui {
             if (cfg == null) return;
             p.setStyle(Paint.Style.FILL);
             p.setTextSize(px(14));
-            for (int db = 0; db <= 10; db += 5) {
+            for (int db = 0; db <= Config.SPEED_MAX / 100; db += 5) {
                 p.setColor(db == 0 ? CARD_EDGE : LINE);
                 p.setStrokeWidth(px(1));
                 c.drawLine(l(), y(db * 100), r(), y(db * 100), p);

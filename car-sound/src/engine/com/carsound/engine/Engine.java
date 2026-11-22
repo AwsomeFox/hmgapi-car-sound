@@ -108,6 +108,19 @@ public final class Engine {
     }
 
     static final Map<Integer, Fx> fx = new HashMap<Integer, Fx>();
+    /**
+     * The effects on Android's output mix (session 0), Config.scope "all": there from the engine's
+     * start, on everything Android plays. Android 4.4 suspends them while any effect is enabled on
+     * an app's own session on the same output thread, and for good (until the audio service
+     * restarts) if a process is killed holding one. So with these, Car Sound puts nothing on the
+     * sessions of that thread; and if it finds them suspended (the equalizer enabled but idle
+     * while audio plays), it gives them up and tunes phone audio per session, as "phone" does.
+     */
+    static Fx mix;
+    static String mixThread = "";
+    static int mixIdle;
+    static boolean mixSuspended, playing;
+    static final Set<Integer> cleaned = new HashSet<Integer>();
     static Config cfg = new Config();
     static long settingsAt = -1;
     static float speed = -1;
@@ -150,7 +163,7 @@ public final class Engine {
                         if (tick % 8 == 0) sessions();
                         clipGuard();
                         smooth();
-                        Amp.tick(cfg, now[Config.BASS], now[Config.TREBLE], carPlay, realKmh == 0);
+                        Amp.tick(cfg, now[Config.VOL], now[Config.BASS], now[Config.TREBLE], carPlay, realKmh == 0);
                         apply();
                         bose();
                         dsc();
@@ -166,7 +179,10 @@ public final class Engine {
         } finally {
             for (Fx f : fx.values()) f.release();
             fx.clear();
+            if (mix != null) mix.release();
+            mix = null;
             restoreDsc();
+            Amp.restoreVolume();
             Amp.restore();
             status("stopped");
             stop.delete();
@@ -319,24 +335,69 @@ public final class Engine {
         return out;
     }
 
+    /** our effects on a session whose owner died stay "pinned" there, still processing: take them over and release them */
+    static void cleanStale(int session) {
+        try { Equalizer e = new Equalizer(Integer.MAX_VALUE, session); e.setEnabled(true); e.setEnabled(false); e.release(); } catch (Throwable t) { }
+        try { BassBoost e = new BassBoost(Integer.MAX_VALUE, session); e.setEnabled(true); e.setEnabled(false); e.release(); } catch (Throwable t) { }
+        try { LoudnessEnhancer e = new LoudnessEnhancer(session); e.setEnabled(true); e.setEnabled(false); e.release(); } catch (Throwable t) { }
+        try { Visualizer e = new Visualizer(session); e.setEnabled(true); e.setEnabled(false); e.release(); } catch (Throwable t) { }
+        log("audio session " + session + ": released effects left by an engine that was killed");
+    }
+
+    static String describe(Fx f) {
+        StringBuilder b = new StringBuilder();
+        for (double c : f.hz) b.append(b.length() == 0 ? "" : ", ").append(Math.round(c)).append(" Hz");
+        return "equalizer (" + b + "; " + f.lo / 100 + " to " + f.hi / 100 + " dB) and bass boost on it";
+    }
+
+    /**
+     * Android's mixer, from its dump: the active tracks per output thread (which are phone audio),
+     * every effect's thread, session, state and clients. Keeps the output mix's effects (scope
+     * "all") or the phone sessions' own (scope "phone", a thread the mix's effects aren't on, or
+     * after the mix's were found suspended).
+     */
     static void sessions() throws Exception {
         Map<Integer, String> pids = pids();
-        Set<Integer> found = new HashSet<Integer>();
+        Map<Integer, String> phone = new HashMap<Integer, String>();   // session -> thread
+        Set<String> busy = new HashSet<String>();                      // threads with an active track
+        Map<Integer, String[]> effects = new HashMap<Integer, String[]>();   // id -> thread, session, state, clients
         boolean cp = false, any = false;
         Process pr = Runtime.getRuntime().exec(new String[] { "dumpsys", "media.audio_flinger" });
         BufferedReader r = new BufferedReader(new InputStreamReader(pr.getInputStream()));
-        boolean active = false;
-        String l;
+        boolean active = false, stateNext = false;
+        String l, thread = "", session = "";
+        int id = -1;
         while ((l = r.readLine()) != null) {
-            if (l.contains(" active tracks")) { active = true; continue; }
-            if (l.startsWith("Output thread") || l.startsWith("Input thread") || l.contains("underrun") || l.contains("Effect Chains")) active = false;
+            String t = l.trim();
+            if (t.startsWith("Output thread ") || t.startsWith("Input thread ")) {
+                String[] w = t.split("\\s+");
+                thread = t.startsWith("Output") && w.length > 2 ? w[2] : "";
+                active = t.contains(" active tracks");
+                continue;
+            }
+            if (t.contains("underrun") || t.contains("Effect Chains")) active = false;
+            if (t.startsWith("Effects for session ")) { session = t.substring(20).replace(":", "").trim(); continue; }
+            if (t.startsWith("Effect ID ")) {
+                try { id = Integer.parseInt(t.substring(10).replace(":", "").trim()); } catch (NumberFormatException e) { id = -1; }
+                if (id >= 0) effects.put(id, new String[] { thread, session, "", "" });
+                continue;
+            }
+            if (t.startsWith("Session Status State")) { stateNext = true; continue; }
+            if (stateNext) {
+                stateNext = false;
+                String[] w = t.split("\\s+");
+                if (id >= 0 && w.length > 2 && effects.containsKey(id)) effects.get(id)[2] = w[2];
+                continue;
+            }
+            if (t.matches("[0-9]+ Clients:") && id >= 0 && effects.containsKey(id)) { effects.get(id)[3] = t.split("\\s+")[0]; continue; }
             if (!active) continue;
-            String[] w = l.trim().split("\\s+");   // Name Client Type Fmt Chn-mask Session ...
+            String[] w = t.split("\\s+");   // Name Client Type Fmt Chn-mask Session ...
             if (w.length < 6 || !w[0].matches("[0-9]+")) continue;
             try {
-                int client = Integer.parseInt(w[1]), session = Integer.parseInt(w[5]);
-                if (pids.containsKey(client) && session > 0) {
-                    found.add(session);
+                int client = Integer.parseInt(w[1]), sid = Integer.parseInt(w[5]);
+                busy.add(thread);
+                if (pids.containsKey(client) && sid > 0) {
+                    phone.put(sid, thread);
                     any = true;
                     if (PACKAGES[1].equals(pids.get(client))) cp = true;
                 }
@@ -347,19 +408,66 @@ public final class Engine {
         r.close();
         pr.waitFor();
         if (any) carPlay = cp;
+
+        // effects an engine that was killed left on a session: they still process, and would double ours
+        for (String[] e : effects.values()) {
+            try {
+                int sid = Integer.parseInt(e[1]);
+                if (sid > 0 && "0".equals(e[3]) && !fx.containsKey(sid) && cleaned.add(sid)) cleanStale(sid);
+            } catch (NumberFormatException x) {
+                // not a session
+            }
+        }
+
+        // the output mix's effects
+        boolean wantMix = "all".equals(cfg.scope) && !mixSuspended;
+        if (!wantMix && mix != null) {
+            mix.release();
+            mix = null;
+            log("Android's output mix: effects released");
+        }
+        if (wantMix && mix == null) {
+            try {
+                mix = new Fx(0);
+                mixThread = "";   // known from the next dump: until then no session gets effects of its own
+                mixIdle = 0;
+                fxError = null;
+                log("Android's output mix: " + describe(mix) + ", for everything Android plays");
+            } catch (Throwable t) {
+                if (!String.valueOf(t).equals(fxError)) log("Android's output mix: no effects (" + t + ")");
+                fxError = String.valueOf(t);
+            }
+        }
+        if (mix != null) {
+            String[] e = effects.get(mix.eq.getId());
+            if (e != null) {
+                mixThread = e[0];
+                boolean idle = cfg.on && mix.eq.getEnabled() && e[2].matches("0+") && busy.contains(mixThread);
+                mixIdle = idle ? mixIdle + 1 : 0;
+                if (mixIdle >= 3) {   // enabled, audio playing, and still not running after 6 s: suspended
+                    mixSuspended = true;
+                    mix.release();
+                    mix = null;
+                    log("Android is holding its output mix's effects off (an effect on an app's audio session, or one whose app was killed): tuning phone audio per session until the head unit restarts");
+                }
+            }
+        }
+        playing = any || (mix != null && busy.contains(mixThread));
+
+        // the phone sessions' own effects, where the mix's don't reach
         long now = System.currentTimeMillis();
-        for (int s : found) {
-            Fx f = fx.get(s);
+        for (Map.Entry<Integer, String> p : phone.entrySet()) {
+            int sid = p.getKey();
+            if (mix != null && (mixThread.length() == 0 || p.getValue().equals(mixThread))) continue;   // the mix's effects have it (and one here would suspend them)
+            Fx f = fx.get(sid);
             if (f == null) {
                 try {
-                    f = new Fx(s);
-                    fx.put(s, f);
+                    f = new Fx(sid);
+                    fx.put(sid, f);
                     fxError = null;
-                    StringBuilder b = new StringBuilder();
-                    for (double c : f.hz) b.append(b.length() == 0 ? "" : ", ").append(Math.round(c)).append(" Hz");
-                    log("audio session " + s + ": equalizer (" + b + "; " + f.lo / 100 + " to " + f.hi / 100 + " dB) and bass boost on it");
+                    log("audio session " + sid + ": " + describe(f));
                 } catch (Throwable t) {
-                    if (!String.valueOf(t).equals(fxError)) log("audio session " + s + ": no effects (" + t + ")");
+                    if (!String.valueOf(t).equals(fxError)) log("audio session " + sid + ": no effects (" + t + ")");
                     fxError = String.valueOf(t);
                     continue;
                 }
@@ -368,12 +476,20 @@ public final class Engine {
         }
         for (Iterator<Map.Entry<Integer, Fx>> it = fx.entrySet().iterator(); it.hasNext(); ) {
             Map.Entry<Integer, Fx> e = it.next();
-            if (now - e.getValue().seen > 60000) {
+            boolean covered = mix != null && mixThread.equals(phone.get(e.getKey()));
+            if (covered || now - e.getValue().seen > 60000) {
                 e.getValue().release();
                 it.remove();
-                log("audio session " + e.getKey() + ": gone, effects released");
+                log("audio session " + e.getKey() + (covered ? ": the output mix's effects have it, its own released" : ": gone, effects released"));
             }
         }
+    }
+
+    /** every chain Car Sound has: the output mix's and the sessions' */
+    static java.util.List<Fx> chains() {
+        java.util.List<Fx> all = new java.util.ArrayList<Fx>(fx.values());
+        if (mix != null) all.add(mix);
+        return all;
     }
 
     /** the speed curves now, each moving at most 1 dB a second */
@@ -386,7 +502,7 @@ public final class Engine {
     }
 
     static void apply() {
-        for (Fx f : fx.values()) {
+        for (Fx f : chains()) {
             try {
                 if (!cfg.on) {
                     if (f.eq.getEnabled()) f.eq.setEnabled(false);
@@ -397,12 +513,14 @@ public final class Engine {
                 for (short i = 0; i < f.hz.length; i++) {
                     double c = f.hz[i];
                     // the lifts (speed curves, loudness) Android makes: all of them, or none when the amplifier makes them
-                    double mB = Config.eqAt(cfg.bands, c) + (c < Config.BASS_HZ ? Amp.restB : 0) + (c >= Config.TREBLE_HZ ? Amp.restT : 0);
+                    // Amp.bandsNow: the owner's bands, or what the amplifier's steps leave Android to do (cuts only)
+                    double mB = Config.eqAt(Amp.bandsNow, c) + (c < Config.BASS_HZ ? Amp.restB : 0) + (c >= Config.TREBLE_HZ ? Amp.restT : 0);
                     short want = (short) Math.max(f.lo, Math.min(f.hi, Math.round(mB)));
                     if (f.eq.getBandLevel(i) != want) f.eq.setBandLevel(i, want);
                 }
                 if (f.le != null) {
-                    int gain = (int) Math.round(now[Config.VOL] - guard);
+                    // the speed volume, unless the car's own volume makes it (Amp.volume); less what the clip guard holds back
+                    int gain = (int) Math.round((Amp.ampVolume ? 0 : now[Config.VOL]) - guard);
                     if (Math.abs(f.le.getTargetGain() - gain) >= 10) f.le.setTargetGain(gain);
                     if (f.le.getEnabled() != (gain != 0)) f.le.setEnabled(gain != 0);
                 }
@@ -419,7 +537,7 @@ public final class Engine {
 
     static void meter() {
         Visualizer.MeasurementPeakRms m = new Visualizer.MeasurementPeakRms();
-        for (Fx f : fx.values()) {
+        for (Fx f : chains()) {
             if (f.vis == null) continue;
             try {
                 if (f.vis.getMeasurementPeakRms(m) != Visualizer.SUCCESS) continue;
@@ -576,10 +694,13 @@ public final class Engine {
             s.put("peak_mB", lastPeak);
             s.put("clip_s", clips.size());
             s.put("guard_mB", Math.round(guard));
+            s.put("playing", playing);
+            s.put("scope_now", mix != null ? "all" : "phone");
+            if (mixSuspended) s.put("scope_why", "suspended");
             Amp.status(s);
             Report.status(s);
             if (bose != null) s.put("speed_comp_ok", bose.booleanValue());
-            if (fxError != null && fx.isEmpty()) s.put("fx_error", fxError);
+            if (fxError != null && fx.isEmpty() && mix == null) s.put("fx_error", fxError);
             File tmp = new File(DIR, "status.json.tmp");
             FileOutputStream o = new FileOutputStream(tmp);
             o.write(s.toString().getBytes("UTF-8"));

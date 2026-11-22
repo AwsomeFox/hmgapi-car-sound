@@ -432,11 +432,11 @@ public class MainActivity extends Activity {
         carToneNow = Ui.text(this, "", 14, Ui.ACCENT, true);
         ar.addView(carToneNow);
         a.addView(ar);
-        a.addView(Ui.segmented(this, new String[] { "The car's amplifier (recommended)", "Android alone" }, "amp".equals(cfg.lift) ? 0 : 1, new Ui.OnValue() {
+        a.addView(Ui.segmented(this, new String[] { "The car's amplifier", "Android alone" }, ampMode() ? 0 : 1, new Ui.OnValue() {
             @Override
             public void value(int v, boolean done) {
                 cfg.lift = v == 0 ? "amp" : "android";
-                if (toneChoice != null) toneChoice.setVisibility("amp".equals(cfg.lift) ? View.GONE : View.VISIBLE);
+                if (toneChoice != null) toneChoice.setVisibility(ampMode() ? View.GONE : View.VISIBLE);
                 save();
                 showLive();
             }
@@ -451,7 +451,7 @@ public class MainActivity extends Activity {
                 save();
             }
         });
-        toneChoice.setVisibility("amp".equals(cfg.lift) ? View.GONE : View.VISIBLE);
+        toneChoice.setVisibility(ampMode() ? View.GONE : View.VISIBLE);
         a.addView(toneChoice, Ui.lp(-1, -2, 0, 6));
         pageHolder.addView(a);
 
@@ -515,7 +515,7 @@ public class MainActivity extends Activity {
     // the Car page's live lines, from the engine's status
     JSONArray liveTone, liveLoud, liveSteps;
     int livePeak = -9600, liveClips, liveGuard, liveVolume = -1, liveAmpType = -2, liveWrites, liveVolSteps;
-    boolean liveSuspended;
+    boolean liveSuspended, liveAmpOn;
     String liveAmpName = "", liveSpeedComp = "The car's speed compensation";
     boolean liveVerified, liveTesting, liveTestProfile;
 
@@ -531,8 +531,9 @@ public class MainActivity extends Activity {
                     : "At your volume now (" + (liveVolume + liveVolSteps) + "): bass " + Ui.dB(lb) + ", treble " + Ui.dB(lt) + (lb == 0 && lt == 0 ? " (above where the lift ends)" : ""));
         }
         if (ampNow != null) {
-            ampNow.setText(("amp".equals(cfg.lift)
+            ampNow.setText((ampMode()
                     ? "The car's own Bass, Mid, Treble and volume make the boosts, on every source. Your own settings return when Car Sound is off."
+                        + (liveAmpType >= 0 && !liveVerified ? " Not tuned for this car's amplifier yet: tell us how it sounds (Save car report)." : "")
                     : "Android makes everything, on Android's audio only. Each boost there turns the rest of the music down.")
                     + (liveTestProfile ? " Test profile in use." : "") + (liveSuspended ? " Android audio is tuned per app until the head unit restarts." : ""));
         }
@@ -541,6 +542,11 @@ public class MainActivity extends Activity {
                     + "  •  " + (liveClips == 0 ? "no clipping in the last minute" : liveClips + " s clipped in the last minute")
                     + (liveGuard > 0 ? "  •  backed off " + Ui.dB(-liveGuard) : ""));
         }
+    }
+
+    /** the amplifier makes the boosts: chosen, or left to Car Sound ("auto": the engine says which, status "amp_on") */
+    boolean ampMode() {
+        return "amp".equals(cfg.lift) || ("auto".equals(cfg.lift) && liveAmpOn);
     }
 
     static String signed(int v) {
@@ -691,6 +697,7 @@ public class MainActivity extends Activity {
                 liveTestProfile = st.optBoolean("amp_test_profile");
                 liveWrites = st.optInt("amp_writes");
                 liveVolSteps = st.optInt("vol_steps");
+                liveAmpOn = st.optBoolean("amp_on");
                 liveSuspended = "suspended".equals(st.optString("scope_why"));
                 if (st.optString("speed_comp_name").length() > 0) liveSpeedComp = st.optString("speed_comp_name");
                 if (reportAsked != 0 && st.optLong("report_for") == reportAsked) {

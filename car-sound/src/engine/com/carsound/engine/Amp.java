@@ -67,8 +67,9 @@ final class Amp {
         JSONObject p = new JSONObject();
         try {
             p.put("name", type == 3 ? "Bose" : type == 2 ? "Harman" : type == 1 ? "Mobis amplifier" : type == 0 ? "head unit amplifier" : "unknown amplifier");
-            // nothing below is measured yet: guesses until a car test or car report says otherwise
-            p.put("verified", false);
+            // nothing below is measured: the Bose values were tuned by ear on a 2024 Ioniq 5 Limited (so "auto"
+            // uses that amplifier); the others are the same guesses until a car test or car report says otherwise
+            p.put("verified", type == 3);
             p.put("bass_step_mB", 100);      // how much one Bass step lifts its band
             p.put("treble_step_mB", 100);
             p.put("max_bass_steps", type == 0 ? 4 : 6);
@@ -330,7 +331,7 @@ final class Amp {
     static void tick(Config cfg, double speedV, double speedB, double speedT, boolean carPlay, boolean parked) {
         loadProfile();
         cur = readTone();
-        boolean amp = cfg.on && "amp".equals(cfg.lift) && ampType >= 0;
+        boolean amp = cfg.on && wanted(cfg);
         int own = volume(speedV, amp);   // the owner's volume for the source playing, without the speed steps
         volume = own >= 0 ? own : readVolume(carPlay);
 
@@ -354,6 +355,7 @@ final class Amp {
         testing = test != null;
         boolean useAmp = amp;
         why = !"amp".equals(cfg.lift) ? null : ampType < 0 ? "the amplifier type can't be read" : null;
+        usingAmp = amp;
         int[] want = new int[3];
         if (useAmp && !testing) {
             split(cfg.bands);
@@ -414,8 +416,16 @@ final class Amp {
 
     /** Car Sound sets the tone from the centre: asked for ("flat"), or it makes the equalizer's shape with the amplifier */
     static boolean flat(Config cfg) {
-        return cfg.on && ("flat".equals(cfg.tone) || ("amp".equals(cfg.lift) && ampType >= 0));
+        return cfg.on && ("flat".equals(cfg.tone) || wanted(cfg));
     }
+
+    /** the amplifier makes the boosts: asked for ("amp"), or left to Car Sound ("auto") on an amplifier whose profile is verified */
+    static boolean wanted(Config cfg) {
+        if (ampType < 0 || profile == null) return false;
+        return "amp".equals(cfg.lift) || ("auto".equals(cfg.lift) && profile.optBoolean("verified"));
+    }
+
+    static boolean usingAmp;
 
     static int clamp(int v) {
         return Math.max(0, Math.min(MAX, v));
@@ -492,6 +502,7 @@ final class Amp {
         s.put("vol_steps", volSteps);
         s.put("stream", stream);
         s.put("amp_writes", writes + volWrites);
+        s.put("amp_on", usingAmp);
         s.put("amp_testing", testing);
         s.put("loud_mB", new JSONArray().put(Math.round(loudB)).put(Math.round(loudT)));
         if (why != null) s.put("amp_why", why);

@@ -8,7 +8,7 @@ import org.json.JSONObject;
  * settings of the mod (settings.json): "on" ("1"/"0") and "config", this JSON:
  *   {"bands": [mB x5], "boost": 0-1000,
  *    "speed": {"on": bool, "vol": [mB x5], "bass": [mB x5], "treble": [mB x5]}, "dsc": "leave"|"off"|"on",
- *    "tone": "leave"|"flat", "guard": bool, "lift": "android"|"amp", "scope": "all"|"phone",
+ *    "tone": "leave"|"flat", "guard": bool, "lift": "auto"|"android"|"amp", "scope": "all"|"phone",
  *    "loud": {"on": bool, "bass": mB, "treble": mB, "full": volume step, "none": volume step}, "report": ms}
  * The speed lists are the extra volume, bass and treble at MPH's speeds (0 at a standstill, in
  * between linear, past the last speed as at it).
@@ -42,7 +42,7 @@ public final class Config {
      * and loudness lifts as the car's own Bass/Mid/Treble steps, the speed volume as the car's own
      * volume steps, on every source, with Android's equalizer left to cut)
      */
-    public String lift = "android";
+    public String lift = "auto";   // "auto": the amplifier where its profile is verified (tuned on that amplifier), else Android alone
     /** what Android's effects are on: "all" (the output mix: everything Android plays, from the start) or "phone" (Android Auto's and CarPlay's own audio sessions, once they play) */
     public String scope = "all";
     /** loudness: bass and treble lifted at low volume, as ears lose them; all of it at volume loudFull or below, none from loudNone */
@@ -143,7 +143,8 @@ public final class Config {
             c.dsc = "off".equals(d) || "on".equals(d) ? d : "leave";
             c.tone = "flat".equals(o.optString("tone")) ? "flat" : "leave";
             c.guard = o.optBoolean("guard", c.guard);
-            c.lift = "amp".equals(o.optString("lift")) ? "amp" : "android";
+            String lf = o.optString("lift", c.lift);
+            c.lift = "amp".equals(lf) || "android".equals(lf) ? lf : "auto";
             c.scope = "phone".equals(o.optString("scope")) ? "phone" : "all";
             JSONObject l = o.optJSONObject("loud");
             if (l != null) {

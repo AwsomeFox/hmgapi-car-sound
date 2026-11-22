@@ -77,8 +77,8 @@ public final class ConfigTest {
         check("changed curves are the owner's own", d.speedPreset() == -1);
         check("a preset is copied, not shared", Config.copy(Config.SPEED_PRESETS[0]) != Config.SPEED_PRESETS[0]
                 && java.util.Arrays.deepEquals(Config.copy(Config.SPEED_PRESETS[0]), Config.SPEED_PRESETS[0]));
-        check("loudness off, lifts by Android, car tone as set, clip guard on by default",
-                !d.loudOn && "android".equals(d.lift) && "leave".equals(d.tone) && d.guard);
+        check("loudness off, the amplifier where it's verified, car tone as set, clip guard on by default",
+                !d.loudOn && "auto".equals(d.lift) && "leave".equals(d.tone) && d.guard);
         check("loudness presets rise", Config.LOUD_PRESETS.length == Config.LOUD_NAMES.length && Config.LOUD_PRESETS[2][0] > Config.LOUD_PRESETS[0][0]);
         d.loudOn = true;
         check("the default loudness amounts are Medium", d.loudPreset() == 1);
